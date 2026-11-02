@@ -1,0 +1,6 @@
+{
+  "name": "Skill Exchange",
+  "description": "A comprehensive platform for free skill swaps and paid expert lessons, featuring deterministic smart matching, interactive appointments, mock payments, messaging, and moderation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
