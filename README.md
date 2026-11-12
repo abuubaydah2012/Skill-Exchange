@@ -2,9 +2,11 @@
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 </div>
 
-# Run and deploy your AI Studio app
+# Skill Exchange
 
-This contains everything you need to run your app locally.
+A comprehensive platform for free skill swaps and paid expert lessons, featuring deterministic smart matching, interactive appointments, mock payments, messaging, and moderation.
+
+**Live Demo:** https://skill-exchange-ukf2.onrender.com
 
 View your app in AI Studio: https://ai.studio/apps/612c9456-a62f-4098-92d8-bc5c76727b62
 
