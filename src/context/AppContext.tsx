@@ -82,6 +82,7 @@ interface AppContextType {
   // Feedback
   addToast: (type: 'success' | 'error' | 'info' | 'warning', title: string, description?: string) => void;
   removeToast: (id: string) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
   resetDemoData: () => void;
 
@@ -162,24 +163,34 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Theme state
+  // Theme state - defaults to 'light' unless user has a saved preference in localStorage (or query param)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTheme = urlParams.get('theme');
+        if (urlTheme === 'dark' || urlTheme === 'light') {
+          localStorage.setItem(THEME_STORAGE_KEY, urlTheme);
+          return urlTheme;
+        }
+      }
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
       if (saved === 'dark' || saved === 'light') return saved;
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      return 'light';
     } catch {
       return 'light';
     }
   });
 
-  // Apply theme class to HTML tag
+  // Apply theme class and data-theme attribute to HTML tag immediately
   useEffect(() => {
     try {
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
       } else {
         document.documentElement.classList.remove('dark');
+        document.documentElement.setAttribute('data-theme', 'light');
       }
       localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
@@ -1674,6 +1685,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         addToast,
         removeToast,
+        setTheme,
         toggleTheme,
         resetDemoData,
 

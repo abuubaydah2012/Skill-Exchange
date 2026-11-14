@@ -91,24 +91,24 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md">
-      <div className="w-full max-w-5xl h-[88vh] bg-neutral-900 text-white rounded-2xl border border-neutral-800 shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-5xl h-[88vh] bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col overflow-hidden">
         {/* Top Header */}
-        <div className="h-14 px-5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/90">
+        <div className="h-14 px-5 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-neutral-50 dark:bg-neutral-900/90">
           <div className="flex items-center gap-3">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <div>
-              <h3 className="text-sm font-bold text-white truncate max-w-md">
+              <h3 className="text-sm font-bold text-neutral-900 dark:text-white truncate max-w-md">
                 {session.title}
               </h3>
-              <p className="text-[11px] text-neutral-400">
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                 {session.format} · Instructor: {session.teacherName}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-neutral-800 text-xs font-mono tabular-nums text-neutral-300">
-              <span className="text-neutral-500 text-[10px]">ELAPSED</span>
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-neutral-200 dark:bg-neutral-800 text-xs font-mono tabular-nums text-neutral-800 dark:text-neutral-300">
+              <span className="text-neutral-500 dark:text-neutral-400 text-[10px]">ELAPSED</span>
               <span>{formatTimer(elapsedSeconds)}</span>
             </div>
 
@@ -215,14 +215,14 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
           </div>
 
           {/* Right Sidebar: Notes & In-Room Chat */}
-          <div className="border-l border-neutral-800 bg-neutral-900 flex flex-col">
-            <div className="flex items-center border-b border-neutral-800 text-xs">
+          <div className="border-l border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 flex flex-col">
+            <div className="flex items-center border-b border-neutral-200 dark:border-neutral-800 text-xs">
               <button
                 onClick={() => setActiveTab('notes')}
                 className={`flex-1 py-3 text-center font-semibold transition-colors cursor-pointer ${
                   activeTab === 'notes'
-                    ? 'text-white border-b-2 border-white bg-neutral-800/40'
-                    : 'text-neutral-400 hover:text-neutral-200'
+                    ? 'text-neutral-900 dark:text-white border-b-2 border-neutral-900 dark:border-white bg-white dark:bg-neutral-800/40'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'
                 }`}
               >
                 Collaborative Notes
@@ -231,8 +231,8 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
                 onClick={() => setActiveTab('chat')}
                 className={`flex-1 py-3 text-center font-semibold transition-colors cursor-pointer ${
                   activeTab === 'chat'
-                    ? 'text-white border-b-2 border-white bg-neutral-800/40'
-                    : 'text-neutral-400 hover:text-neutral-200'
+                    ? 'text-neutral-900 dark:text-white border-b-2 border-neutral-900 dark:border-white bg-white dark:bg-neutral-800/40'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'
                 }`}
               >
                 Session Chat ({chatMessages.length})
@@ -242,16 +242,16 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
             <div className="flex-1 min-h-0 p-4 overflow-y-auto">
               {activeTab === 'notes' ? (
                 <div className="h-full flex flex-col">
-                  <span className="text-[10px] text-neutral-400 mb-2 uppercase tracking-wider block">
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wider block">
                     Shared Live Whiteboard & Code Snippets
                   </span>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="flex-1 w-full p-3 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-200 font-mono text-xs focus:outline-none resize-none leading-relaxed"
+                    className="flex-1 w-full p-3 rounded-xl bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-800 text-neutral-900 dark:text-neutral-200 font-mono text-xs focus:outline-none resize-none leading-relaxed"
                     placeholder="Type shared session notes here..."
                   />
-                  <span className="text-[10px] text-neutral-500 mt-2">
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-2">
                     Auto-saved locally for session participants.
                   </span>
                 </div>
@@ -260,11 +260,11 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
                   <div className="space-y-3 overflow-y-auto pr-1">
                     {chatMessages.map((msg, idx) => (
                       <div key={idx} className="text-xs">
-                        <div className="flex items-center justify-between text-[10px] text-neutral-400">
-                          <strong className="text-neutral-300">{msg.sender}</strong>
+                        <div className="flex items-center justify-between text-[10px] text-neutral-500 dark:text-neutral-400">
+                          <strong className="text-neutral-800 dark:text-neutral-300">{msg.sender}</strong>
                           <span>{msg.time}</span>
                         </div>
-                        <p className="mt-0.5 text-neutral-200 bg-neutral-950 p-2 rounded-lg border border-neutral-800">
+                        <p className="mt-0.5 text-neutral-800 dark:text-neutral-200 bg-white dark:bg-neutral-950 p-2 rounded-lg border border-neutral-200 dark:border-neutral-800">
                           {msg.text}
                         </p>
                       </div>
@@ -277,11 +277,11 @@ export const MeetingRoomModal: React.FC<MeetingRoomModalProps> = ({
                       value={inputMessage}
                       onChange={(e) => setInputMessage(e.target.value)}
                       placeholder="Send message to room..."
-                      className="flex-1 px-3 py-2 text-xs rounded-lg bg-neutral-950 border border-neutral-800 text-white focus:outline-none focus:ring-1 focus:ring-neutral-700"
+                      className="flex-1 px-3 py-2 text-xs rounded-lg bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-800 text-neutral-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-700"
                     />
                     <button
                       type="submit"
-                      className="p-2 rounded-lg bg-white text-neutral-900 hover:bg-neutral-200 transition-colors cursor-pointer"
+                      className="p-2 rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
                     </button>

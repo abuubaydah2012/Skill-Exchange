@@ -7,11 +7,11 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { OtpModal, ForgotPasswordModal, LockoutModal } from './AuthModals';
-import { KeyRound, ShieldAlert, ArrowRight, UserCheck, Sparkles, Check } from 'lucide-react';
+import { KeyRound, ShieldAlert, ArrowRight, UserCheck, Sparkles, Check, Sun, Moon } from 'lucide-react';
 import { UserRole } from '../../types';
 
 export const LoginForm: React.FC = () => {
-  const { login, loginWithDemoRole, isAccountLocked, currentUser } = useApp();
+  const { login, loginWithDemoRole, isAccountLocked, currentUser, theme, toggleTheme } = useApp();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('learner@skillexchange.io');
@@ -60,7 +60,20 @@ export const LoginForm: React.FC = () => {
   const locked = isAccountLocked(email);
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="relative min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      {/* Theme Toggle Button */}
+      <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="p-2.5 text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-xs transition-colors cursor-pointer"
+          aria-label="Toggle color mode"
+          title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-neutral-600" />}
+        </button>
+      </div>
+
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <div className="w-12 h-12 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center font-bold text-xl tracking-tight shadow-md">
