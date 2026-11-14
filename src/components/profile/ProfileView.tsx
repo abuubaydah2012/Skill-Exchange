@@ -316,28 +316,124 @@ export const ProfileView: React.FC = () => {
       )}
 
       {activeTab === 'credentials' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {targetUser.certificates.map((cert) => (
-            <div
-              key={cert.id}
-              className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs"
-            >
+        <div className="space-y-6">
+          {/* Identity Verification Record */}
+          {targetUser.identityVerification && (
+            <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-neutral-900 dark:text-white">
-                  {cert.title}
-                </span>
-                <Badge variant={cert.status === 'Verified' ? 'success' : 'neutral'}>
-                  {cert.status}
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                  <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Official Identity Verification
+                  </h3>
+                </div>
+                <Badge
+                  variant={
+                    targetUser.identityVerification.status === 'Verified'
+                      ? 'success'
+                      : targetUser.identityVerification.status === 'Rejected'
+                      ? 'error'
+                      : 'warning'
+                  }
+                >
+                  {targetUser.identityVerification.status === 'Pending'
+                    ? 'Pending Review'
+                    : targetUser.identityVerification.status}
                 </Badge>
               </div>
-              <p className="text-xs text-neutral-500 mt-1">
-                Issued by {cert.issuingOrganization} ({cert.issueDate})
-              </p>
-              <p className="text-[11px] text-neutral-400 mt-0.5">
-                Credential for: {cert.relatedSkill}
-              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-xs">
+                <div>
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase block">
+                    Document Type
+                  </span>
+                  <span className="font-semibold text-neutral-900 dark:text-white mt-0.5 block">
+                    {targetUser.identityVerification.documentType}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase block">
+                    Document Number
+                  </span>
+                  <span className="font-mono font-semibold text-neutral-900 dark:text-white mt-0.5 block">
+                    {isSelf || currentUser?.role === 'admin'
+                      ? targetUser.identityVerification.documentNumber
+                      : '••••••••' + targetUser.identityVerification.documentNumber.slice(-4)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase block">
+                    Verified Age
+                  </span>
+                  <span className="font-semibold text-neutral-900 dark:text-white mt-0.5 block">
+                    {targetUser.age ? `${targetUser.age} years old` : 'Verified'}
+                  </span>
+                </div>
+              </div>
+
+              {targetUser.identityVerification.rejectionReason && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+                  <span className="font-bold">Rejection Feedback: </span>
+                  <span>{targetUser.identityVerification.rejectionReason}</span>
+                </div>
+              )}
             </div>
-          ))}
+          )}
+
+          {/* Educational & Professional Certificates */}
+          <div>
+            <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-3 flex items-center gap-2">
+              <Award className="w-4 h-4 text-amber-500" />
+              <span>Certificates & Accredited Qualifications ({targetUser.certificates.length})</span>
+            </h3>
+
+            {targetUser.certificates.length === 0 ? (
+              <div className="p-8 text-center text-xs text-neutral-500 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">
+                No credentials or certificates uploaded yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {targetUser.certificates.map((cert) => (
+                  <div
+                    key={cert.id}
+                    className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white">
+                        {cert.title}
+                      </span>
+                      <Badge variant={cert.status === 'Verified' ? 'success' : 'neutral'}>
+                        {cert.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-neutral-500">
+                      Issued by {cert.issuingOrganization} ({cert.issueDate})
+                    </p>
+                    <p className="text-[11px] text-neutral-400">
+                      Credential for: {cert.relatedSkill}
+                    </p>
+                    {cert.fileName && (
+                      <div className="flex items-center justify-between pt-1 border-t border-neutral-100 dark:border-neutral-800 text-[11px] text-sky-600 dark:text-sky-400">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <FileText className="w-3.5 h-3.5 shrink-0" />
+                          <span className="font-mono truncate">{cert.fileName}</span>
+                        </div>
+                        {cert.fileData && (
+                          <a
+                            href={cert.fileData}
+                            download={cert.fileName}
+                            className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white shrink-0 ml-2 font-medium"
+                          >
+                            Download
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -24,6 +24,8 @@ import {
   AlertCircle,
   ExternalLink,
   Plus,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const LearnerDashboard: React.FC = () => {
@@ -72,6 +74,38 @@ export const LearnerDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Identity Verification Status Banner */}
+      {currentUser.identityVerification?.status === 'Pending' && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+          <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h4 className="text-xs font-bold text-amber-900 dark:text-amber-100">
+              Identity Verification In Progress
+            </h4>
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 leading-relaxed">
+              Your <strong>{currentUser.identityVerification.documentType}</strong> ({currentUser.identityVerification.documentNumber}) is currently queued for compliance review. You can continue exploring courses and appointments.
+            </p>
+          </div>
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 uppercase tracking-wider shrink-0">
+            Pending Review
+          </span>
+        </div>
+      )}
+
+      {currentUser.identityVerification?.status === 'Rejected' && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200 flex items-start gap-3 shadow-xs">
+          <ShieldAlert className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h4 className="text-xs font-bold text-rose-900 dark:text-rose-100">
+              Identity Verification Attention Needed
+            </h4>
+            <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">
+              Your {currentUser.identityVerification.documentType} was not verified. Reason: <em>{currentUser.identityVerification.rejectionReason || 'Document illegible or information mismatch.'}</em>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="p-6 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>

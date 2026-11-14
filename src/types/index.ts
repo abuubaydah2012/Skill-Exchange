@@ -11,6 +11,23 @@ export type SkillVerificationStatus = 'Unverified' | 'Pending' | 'Verified';
 
 export type CertificateStatus = 'Pending' | 'Verified' | 'Rejected';
 
+export type IdentityDocumentType = 'National ID (NID)' | 'Birth Certificate';
+
+export type AccountVerificationStatus = 'Pending Verification' | 'Verified' | 'Rejected' | 'Unverified';
+
+export interface IdentityVerificationRecord {
+  status: 'Pending' | 'Verified' | 'Rejected';
+  documentType: IdentityDocumentType;
+  documentNumber: string;
+  documentFileName: string;
+  documentFileSize: number;
+  documentUrl?: string; // Data URL or storage reference
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
+}
+
 export type AppointmentStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled' | 'Completed';
 
 export type SessionFormat = '1-on-1 Video' | 'Interactive Workshop' | 'Practice Lab';
@@ -49,6 +66,8 @@ export interface Certificate {
   relatedSkill: string;
   documentUrl?: string;
   fileName?: string;
+  fileSize?: number;
+  fileData?: string;
   status: CertificateStatus;
   rejectionReason?: string;
   submittedAt: string;
@@ -87,6 +106,13 @@ export interface UserProfile {
   education: UserEducation[];
   portfolioLinks: { title: string; url: string }[];
   cvFileName?: string;
+  phoneNumber?: string;
+  countryCode?: string;
+  dateOfBirth?: string;
+  age?: number;
+  passwordHash?: string;
+  accountVerificationStatus?: AccountVerificationStatus;
+  identityVerification?: IdentityVerificationRecord;
   isProfileVerified: boolean;
   isSuspended: boolean;
   twoFactorEnabled: boolean;
@@ -96,6 +122,33 @@ export interface UserProfile {
   completedSessionsCount: number;
   totalEarnings: number; // simulated
   createdAt: string;
+}
+
+export interface UploadedCertificateDraft {
+  title: string;
+  issuingOrganization?: string;
+  fileName: string;
+  fileSize: number;
+  fileData: string;
+}
+
+export interface RegisterUserData {
+  name: string;
+  email: string;
+  phoneNumber: string;
+  countryCode: string;
+  dateOfBirth: string;
+  role: UserRole;
+  password: string;
+  identityDocument: {
+    type: IdentityDocumentType;
+    documentNumber: string;
+    fileName: string;
+    fileSize: number;
+    fileData: string;
+  };
+  certificates: UploadedCertificateDraft[];
+  avatarUrl?: string;
 }
 
 export interface Appointment {

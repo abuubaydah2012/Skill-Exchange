@@ -21,7 +21,16 @@ import {
   ComplaintStatus,
   PlatformNotification,
   PlatformAnnouncement,
+  RegisterUserData,
+  IdentityDocumentType,
 } from '../types';
+import {
+  calculateAge,
+  validateAgeAndDocument,
+  validateEmail,
+  validatePhoneNumber,
+  hashPassword,
+} from '../utils/ageVerification';
 import {
   INITIAL_USERS,
   INITIAL_APPOINTMENTS,
@@ -85,7 +94,16 @@ interface AppContextType {
   unlockAccount: (email: string) => void;
   requestPasswordReset: (email: string) => Promise<boolean>;
   logout: () => void;
-  registerUser: (name: string, email: string, role: UserRole) => { success: boolean; error?: string };
+  registerUser: (
+    dataOrName: RegisterUserData | string,
+    email?: string,
+    role?: UserRole
+  ) => Promise<{ success: boolean; error?: string }>;
+  reviewIdentityVerification: (
+    userId: string,
+    decision: 'Verified' | 'Rejected',
+    rejectionReason?: string
+  ) => void;
 
   // Profile & Skills
   updateProfile: (updated: Partial<UserProfile>) => void;
@@ -421,10 +439,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // Password check simulation:
-      // Accepts demo passwords: "password", "password123", "admin123", or matching role name
+      // Password check:
+      // Accepts registered user's hashed password OR demo passwords: "password", "password123", "admin123", or matching role name
       const validPasswords = ['password', 'password123', 'admin123', found.role, 'demo123'];
-      if (!validPasswords.includes(password.trim())) {
+      const inputHash = await hashPassword(password);
+      const isHashedMatch = Boolean(found.passwordHash && found.passwordHash === inputHash);
+      const isDemoMatch = validPasswords.includes(password.trim());
+
+      if (!isHashedMatch && !isDemoMatch) {
         const attempts = (failedAttempts[cleanEmail] || 0) + 1;
         setFailedAttempts((prev) => ({ ...prev, [cleanEmail]: attempts }));
         if (attempts >= 5) {
@@ -436,7 +458,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return {
           success: false,
-          error: `Incorrect password. Use 'password123' for demo. (${attempts}/5 attempts)`,
+          error: `Incorrect password. (${attempts}/5 attempts before lock)`,
         };
       }
 
@@ -564,29 +586,160 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [addToast]);
 
   const registerUser = useCallback(
-    (name: string, email: string, role: UserRole): { success: boolean; error?: string } => {
-      const clean = email.toLowerCase().trim();
-      if (users.some((u) => u.email.toLowerCase() === clean)) {
-        return { success: false, error: 'An account with this email already exists.' };
+    async (
+      dataOrName: RegisterUserData | string,
+      legacyEmail?: string,
+      legacyRole?: UserRole
+    ): Promise<{ success: boolean; error?: string }> => {
+      // Compatibility branch for simple legacy signature (name, email, role)
+      if (typeof dataOrName === 'string') {
+        const name = dataOrName;
+        const email = legacyEmail || '';
+        const role = legacyRole || 'learner';
+        const clean = email.toLowerCase().trim();
+        if (users.some((u) => u.email.toLowerCase() === clean)) {
+          return { success: false, error: 'An account with this email already exists.' };
+        }
+
+        const colors = ['#0284c7', '#059669', '#d97706', '#9333ea', '#e11d48', '#2563eb'];
+        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+        const newUser: UserProfile = {
+          id: 'usr-' + Math.random().toString(36).substring(2, 9),
+          email: clean,
+          name: name.trim(),
+          role,
+          avatarUrl: '',
+          avatarBgColor: randomColor,
+          headline: role === 'teacher' ? 'Independent Educator' : 'Aspiring Learner',
+          bio: `Hi, I am ${name.trim()}! Excited to join Skill Exchange to share knowledge and learn from peers.`,
+          location: 'Remote, Global',
+          languages: ['English'],
+          teachingSkills: [],
+          learningInterests: [],
+          certificates: [],
+          experience: [],
+          education: [],
+          portfolioLinks: [],
+          isProfileVerified: false,
+          isSuspended: false,
+          twoFactorEnabled: false,
+          profileVisibility: 'public',
+          rating: 5.0,
+          reviewCount: 0,
+          completedSessionsCount: 0,
+          totalEarnings: 0,
+          createdAt: new Date().toISOString(),
+        };
+
+        setUsers((prev) => [newUser, ...prev]);
+        setCurrentUser(newUser);
+        addToast('success', 'Account Created', `Welcome to Skill Exchange, ${name}!`);
+        return { success: true };
       }
 
-      const colors = ['#0284c7', '#059669', '#d97706', '#9333ea', '#e11d48', '#2563eb'];
+      // Advanced registration with identity verification and documents
+      const data = dataOrName as RegisterUserData;
+      const cleanEmail = (data.email || '').toLowerCase().trim();
+
+      // 1. Check duplicate email registration
+      if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
+        return { success: false, error: 'An account with this email address already exists. Please sign in instead.' };
+      }
+
+      // 2. Validate email format
+      if (!validateEmail(cleanEmail)) {
+        return { success: false, error: 'Please enter a valid email address.' };
+      }
+
+      // 3. Validate phone number
+      if (!validatePhoneNumber(data.phoneNumber)) {
+        return { success: false, error: 'Please enter a valid phone number (at least 7 digits).' };
+      }
+
+      // 4. Validate age and corresponding identity document type
+      const ageValidation = validateAgeAndDocument(data.dateOfBirth, data.identityDocument.type);
+      if (!ageValidation.valid) {
+        return { success: false, error: ageValidation.error || 'Identity document type does not match your age.' };
+      }
+
+      const calculatedAge = ageValidation.age;
+
+      // 5. Enforce identity document number and PDF attachment
+      if (!data.identityDocument.documentNumber || data.identityDocument.documentNumber.trim().length === 0) {
+        return {
+          success: false,
+          error:
+            data.identityDocument.type === 'National ID (NID)'
+              ? 'National ID (NID) card number is required.'
+              : 'Birth Certificate registration number is required.',
+        };
+      }
+
+      if (!data.identityDocument.fileData) {
+        return {
+          success: false,
+          error: `Please upload your ${data.identityDocument.type} PDF document.`,
+        };
+      }
+
+      // 6. Validate password requirements
+      if (!data.password || data.password.length < 6) {
+        return { success: false, error: 'Password must be at least 6 characters.' };
+      }
+
+      // 7. Secure cryptographic password hashing (never store plain text)
+      const passwordHash = await hashPassword(data.password);
+
+      const newUserId = 'usr-' + Math.random().toString(36).substring(2, 9);
+      const colors = ['#0284c7', '#059669', '#d97706', '#9333ea', '#e11d48', '#2563eb', '#0891b2', '#7c3aed'];
       const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
+      // 8. Convert uploaded certificates
+      const formattedCertificates: Certificate[] = (data.certificates || []).map((c) => ({
+        id: 'cert-' + Math.random().toString(36).substring(2, 9),
+        userId: newUserId,
+        title: c.title || c.fileName.replace(/\.pdf$/i, ''),
+        issuingOrganization: c.issuingOrganization || 'Verified Educational/Professional Institution',
+        issueDate: new Date().toISOString().split('T')[0],
+        relatedSkill: c.title || 'General Credential',
+        fileName: c.fileName,
+        fileSize: c.fileSize,
+        fileData: c.fileData,
+        status: 'Pending',
+        submittedAt: new Date().toISOString(),
+      }));
+
+      // 9. Build registered user profile
       const newUser: UserProfile = {
-        id: 'usr-' + Math.random().toString(36).substring(2, 9),
-        email: clean,
-        name: name.trim(),
-        role,
-        avatarUrl: '',
+        id: newUserId,
+        email: cleanEmail,
+        name: data.name.trim(),
+        role: data.role,
+        avatarUrl: data.avatarUrl || '',
         avatarBgColor: randomColor,
-        headline: role === 'teacher' ? 'Independent Educator' : 'Aspiring Learner',
-        bio: `Hi, I am ${name.trim()}! Excited to join Skill Exchange to share knowledge and learn from peers.`,
+        headline: data.role === 'teacher' ? 'Certified Instructor' : 'Active Learner',
+        bio: `Hi, I am ${data.name.trim()}! Excited to join Skill Exchange to share knowledge and learn from peers.`,
         location: 'Remote, Global',
         languages: ['English'],
+        phoneNumber: `${data.countryCode} ${data.phoneNumber.trim()}`,
+        countryCode: data.countryCode,
+        dateOfBirth: data.dateOfBirth,
+        age: calculatedAge,
+        passwordHash,
+        accountVerificationStatus: 'Pending Verification',
+        identityVerification: {
+          status: 'Pending',
+          documentType: data.identityDocument.type,
+          documentNumber: data.identityDocument.documentNumber.trim(),
+          documentFileName: data.identityDocument.fileName,
+          documentFileSize: data.identityDocument.fileSize,
+          documentUrl: data.identityDocument.fileData,
+          submittedAt: new Date().toISOString(),
+        },
         teachingSkills: [],
         learningInterests: [],
-        certificates: [],
+        certificates: formattedCertificates,
         experience: [],
         education: [],
         portfolioLinks: [],
@@ -601,9 +754,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: new Date().toISOString(),
       };
 
+      // 10. Persist user and set active session
       setUsers((prev) => [newUser, ...prev]);
       setCurrentUser(newUser);
-      addToast('success', 'Account Created', `Welcome to Skill Exchange, ${name}!`);
+
+      // 11. Create welcome notifications
+      const userNotif: PlatformNotification = {
+        id: 'notif-' + Math.random().toString(36).substring(2, 9),
+        userId: newUserId,
+        title: 'Identity Verification Submitted',
+        message: `Welcome to Skill Exchange! Your ${data.identityDocument.type} has been received and is queued for administrative verification.`,
+        category: 'Verifications',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        actionUrl: '/dashboard',
+      };
+
+      const adminNotif: PlatformNotification = {
+        id: 'notif-' + Math.random().toString(36).substring(2, 9),
+        userId: 'usr-admin',
+        title: 'New Identity Document Verification',
+        message: `${newUser.name} registered (${data.role}, Age: ${calculatedAge}) and submitted a ${data.identityDocument.type} for review.`,
+        category: 'Verifications',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        actionUrl: '/admin/verifications',
+      };
+
+      setNotifications((prev) => [userNotif, adminNotif, ...prev]);
+
+      addToast(
+        'success',
+        'Registration Complete',
+        `Welcome to Skill Exchange, ${data.name}! Your account has been created and verification document is queued.`
+      );
+
       return { success: true };
     },
     [users, addToast]
@@ -1382,6 +1567,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [addToast]
   );
 
+  const reviewIdentityVerification = useCallback(
+    (userId: string, decision: 'Verified' | 'Rejected', rejectionReason?: string) => {
+      const targetUser = users.find((u) => u.id === userId);
+      if (!targetUser) return;
+
+      const isVerified = decision === 'Verified';
+
+      setUsers((prev) =>
+        prev.map((u) => {
+          if (u.id !== userId) return u;
+          return {
+            ...u,
+            isProfileVerified: isVerified,
+            accountVerificationStatus: decision === 'Verified' ? 'Verified' : 'Rejected',
+            identityVerification: u.identityVerification
+              ? {
+                  ...u.identityVerification,
+                  status: decision,
+                  reviewedAt: new Date().toISOString(),
+                  reviewedBy: currentUser?.name || 'Administrator',
+                  rejectionReason: !isVerified ? rejectionReason : undefined,
+                }
+              : undefined,
+          };
+        })
+      );
+
+      // Notification for the user
+      const userNotif: PlatformNotification = {
+        id: 'notif-' + Math.random().toString(36).substring(2, 9),
+        userId: targetUser.id,
+        title: isVerified ? 'Identity Verification Approved!' : 'Identity Verification Rejected',
+        message: isVerified
+          ? `Congratulations! Your ${targetUser.identityVerification?.documentType || 'identity document'} has been approved. You now hold a Verified Member badge.`
+          : `Your identity document verification was rejected. Reason: ${rejectionReason || 'Illegible document scan or document number mismatch.'} Please review and resubmit.`,
+        category: 'Verifications',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        actionUrl: '/profile',
+      };
+
+      setNotifications((prev) => [userNotif, ...prev]);
+
+      addToast(
+        isVerified ? 'success' : 'error',
+        isVerified ? 'Identity Approved' : 'Identity Rejected',
+        `${targetUser.name}'s identity document has been marked as ${decision.toLowerCase()}.`
+      );
+    },
+    [users, currentUser, addToast]
+  );
+
   const saveAnnouncement = useCallback(
     (announcement: Partial<PlatformAnnouncement> & { title: string; content: string }) => {
       if (announcement.id) {
@@ -1490,6 +1727,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         toggleUserSuspension,
         toggleUserVerification,
+        reviewIdentityVerification,
         saveAnnouncement,
         toggleAnnouncementActive,
       }}
