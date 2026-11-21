@@ -1,6 +1,7 @@
 services:
-  - type: static
+  - type: web
     name: skill-exchange
+    runtime: static
     buildCommand: npm run build
     staticPublishPath: dist
     routes:
