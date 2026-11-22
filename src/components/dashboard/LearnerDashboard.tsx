@@ -119,9 +119,6 @@ export const LearnerDashboard: React.FC = () => {
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 mt-1 max-w-xl">
-            You are offering <strong className="text-neutral-800 dark:text-neutral-200">{currentUser.teachingSkills.length} teaching skills</strong> and looking to learn <strong className="text-neutral-800 dark:text-neutral-200">{currentUser.learningInterests.join(', ') || 'new skills'}</strong>.
-          </p>
 
           {/* Profile Completeness Bar */}
           <div className="mt-4 flex items-center gap-3">
