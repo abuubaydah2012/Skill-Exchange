@@ -80,7 +80,7 @@ export const SmartMatchesView: React.FC = () => {
               className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0 ${
                 filterMutualOnly
                   ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
-                  : 'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50'
+                  : 'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
             >
               {filterMutualOnly ? 'Show All Matches' : 'Filter Mutual Swaps Only'}

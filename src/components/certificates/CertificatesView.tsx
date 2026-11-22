@@ -173,7 +173,7 @@ export const CertificatesView: React.FC = () => {
                       setRelatedSkill(cert.relatedSkill);
                       setIsModalOpen(true);
                     }}
-                    className="w-full py-1.5 text-xs font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 rounded-lg text-center"
+                    className="w-full py-1.5 text-xs font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg text-center"
                   >
                     Resubmit Updated Evidence
                   </button>
@@ -309,7 +309,7 @@ export const CertificatesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>

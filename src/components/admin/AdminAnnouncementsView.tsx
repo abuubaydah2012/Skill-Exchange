@@ -119,7 +119,7 @@ export const AdminAnnouncementsView: React.FC = () => {
                 </button>
                 <button
                   onClick={() => openEditModal(ann)}
-                  className="p-1.5 text-neutral-500 hover:text-neutral-900 dark:hover:text-white rounded-lg hover:bg-neutral-100 cursor-pointer"
+                  className="p-1.5 text-neutral-500 hover:text-neutral-900 dark:hover:text-white rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                   title="Edit"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -193,7 +193,7 @@ export const AdminAnnouncementsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>

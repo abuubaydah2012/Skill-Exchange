@@ -466,7 +466,7 @@ export const SkillsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsSkillModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>

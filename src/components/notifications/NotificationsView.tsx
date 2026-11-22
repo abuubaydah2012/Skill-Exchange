@@ -98,7 +98,7 @@ export const NotificationsView: React.FC = () => {
         {unreadTotal > 0 && (
           <button
             onClick={markAllNotificationsAsRead}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 rounded-lg transition-colors cursor-pointer shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-700 rounded-lg transition-colors cursor-pointer shrink-0"
           >
             <CheckCheck className="w-4 h-4" />
             <span>Mark All as Read</span>
@@ -115,7 +115,7 @@ export const NotificationsView: React.FC = () => {
             className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
               selectedCategory === cat
                 ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200'
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
             {cat}

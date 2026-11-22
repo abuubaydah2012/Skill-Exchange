@@ -163,7 +163,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Theme state - defaults to 'light' unless user has a saved preference in localStorage (or query param)
+  // Theme state - respects URL query, saved preference in localStorage, or system preference on first visit
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -176,6 +176,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
       if (saved === 'dark' || saved === 'light') return saved;
+      // On first visit, respect system color-scheme preference
+      if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
       return 'light';
     } catch {
       return 'light';
@@ -198,8 +202,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [theme]);
 
+  // Listen to OS system color-scheme changes if user has not set an explicit preference
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined' || !window.matchMedia) return;
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleSystemThemeChange = (e: MediaQueryListEvent) => {
+        const saved = localStorage.getItem(THEME_STORAGE_KEY);
+        if (!saved) {
+          setTheme(e.matches ? 'dark' : 'light');
+        }
+      };
+      mediaQuery.addEventListener('change', handleSystemThemeChange);
+      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setTheme((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light';
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, next);
+      } catch {}
+      return next;
+    });
   }, []);
 
   // Toasts

@@ -18,7 +18,8 @@
           var params = new URLSearchParams(window.location.search);
           var qTheme = params.get('theme');
           var saved = qTheme === 'dark' || qTheme === 'light' ? qTheme : localStorage.getItem('SKILL_EXCHANGE_THEME_V1');
-          if (saved === 'dark') {
+          var isDark = saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
             document.documentElement.classList.add('dark');
             document.documentElement.setAttribute('data-theme', 'dark');
           } else {

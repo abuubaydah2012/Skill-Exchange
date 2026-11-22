@@ -224,7 +224,7 @@ export const SettingsView: React.FC = () => {
           <button
             type="button"
             onClick={toggleTheme}
-            className="px-3.5 py-1.5 font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 rounded-lg transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-colors cursor-pointer"
           >
             Switch to {theme === 'dark' ? 'Light' : 'Dark'} Mode
           </button>
@@ -316,7 +316,7 @@ export const SettingsView: React.FC = () => {
           <button
             type="button"
             onClick={resetDemoData}
-            className="px-3.5 py-2 font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 rounded-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="px-3.5 py-2 font-semibold text-neutral-800 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Reset Demo Data</span>

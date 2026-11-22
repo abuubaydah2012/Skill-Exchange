@@ -75,7 +75,7 @@ export const AdminModerationView: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
                 <button
                   onClick={() => moderateReview(rev.id, 'keep')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg flex items-center gap-1 cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg flex items-center gap-1 cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Dismiss Flag (Approve Review)</span>

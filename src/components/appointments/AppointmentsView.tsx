@@ -115,7 +115,7 @@ export const AppointmentsView: React.FC = () => {
             className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize whitespace-nowrap transition-colors cursor-pointer ${
               statusFilter === st
                 ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200'
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
             {st === 'all' ? 'All Appointments' : st}
@@ -340,7 +340,7 @@ export const AppointmentsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setCancellingAppointmentId(null)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
                 >
                   Dismiss
                 </button>

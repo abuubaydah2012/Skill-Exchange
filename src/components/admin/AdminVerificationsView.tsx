@@ -727,7 +727,7 @@ export const AdminVerificationsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setRejectingIdentityUserId(null)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -775,7 +775,7 @@ export const AdminVerificationsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setRejectingCertId(null)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 rounded-lg"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg"
                 >
                   Cancel
                 </button>

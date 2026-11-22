@@ -191,7 +191,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <button
                     onClick={() => navigate('/admin/verifications')}
-                    className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 transition-colors shrink-0"
+                    className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors shrink-0"
                   >
                     Review
                   </button>
@@ -216,7 +216,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <button
                     onClick={() => navigate('/admin/verifications')}
-                    className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 transition-colors shrink-0"
+                    className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors shrink-0"
                   >
                     Review
                   </button>
