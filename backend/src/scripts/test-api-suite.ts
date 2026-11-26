@@ -148,7 +148,26 @@ const runSuite = async () => {
       `Status ${regLearnerRes.status}`
     );
 
-    // Test 1.3: Duplicate Email Check
+    // Test 1.3: Reject Admin Role in Public Registration (Privilege Escalation Protection)
+    const adminRegRes = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Hacker Admin',
+        email: `admin_attempt_${timestamp}@test.io`,
+        password: 'Password123!',
+        role: 'admin',
+      }),
+    });
+    const adminRegData: any = await adminRegRes.json();
+    record(
+      'Part 1: Registration',
+      'Reject public registration with admin role with 403 Forbidden',
+      adminRegRes.status === 403 && adminRegData.success === false,
+      `Status ${adminRegRes.status} -> ${adminRegData.message}`
+    );
+
+    // Test 1.4: Duplicate Email Check
     const dupEmailRes = await fetch(`${baseUrl}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -463,6 +482,14 @@ const runSuite = async () => {
       `Appointment ID: ${createdAppointmentId}`
     );
 
+    // Test 5.1b: Verify pricing and totalCost are calculated securely by backend from Skill in DB
+    record(
+      'Part 5: Appointments',
+      'Verify appointment pricing and totalCost are securely calculated by backend',
+      requestAptData.data?.hourlyPrice === 75 && requestAptData.data?.totalCost === 75,
+      `Verified: hourlyPrice=$${requestAptData.data?.hourlyPrice}, totalCost=$${requestAptData.data?.totalCost}`
+    );
+
     // Test 5.2: Self-booking prevention
     const selfAptRes = await fetch(`${baseUrl}/appointments`, {
       method: 'POST',
@@ -547,6 +574,28 @@ const runSuite = async () => {
       `Sessions count: teacher=${tUser?.completedSessionsCount}, learner=${lUser?.completedSessionsCount}`
     );
 
+    // Test 5.6b: Ensure appointment completion is idempotent (cannot re-increment counters)
+    const repeatCompleteRes = await fetch(`${baseUrl}/appointments/${createdAppointmentId}/complete`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${teacherToken}` },
+    });
+    const repeatCompleteData: any = await repeatCompleteRes.json();
+    const [tUserAfter, lUserAfter] = await Promise.all([
+      User.findById(teacherId),
+      User.findById(learnerId),
+    ]);
+    const idempotentOk =
+      repeatCompleteRes.status === 200 &&
+      tUserAfter?.completedSessionsCount === tUser?.completedSessionsCount &&
+      lUserAfter?.completedSessionsCount === lUser?.completedSessionsCount;
+
+    record(
+      'Part 5: Appointments',
+      'Ensure appointment completion is idempotent (no duplicate session increments)',
+      Boolean(idempotentOk),
+      `Sessions count after second complete: teacher=${tUserAfter?.completedSessionsCount}, learner=${lUserAfter?.completedSessionsCount}`
+    );
+
     // Test 5.7: Request and Cancel Appointment with Reason
     const cancelAptTestRes = await fetch(`${baseUrl}/appointments`, {
       method: 'POST',
@@ -603,6 +652,16 @@ const runSuite = async () => {
       if (learnerId) {
         await User.findByIdAndDelete(learnerId);
         await Notification.deleteMany({ userId: learnerId });
+      }
+
+      // Comprehensive safety purge: clean any stray test domain records
+      const testUsers = await User.find({ email: /@test\.io$/i });
+      const testUserIds = testUsers.map((u) => u._id);
+      if (testUserIds.length > 0) {
+        await Appointment.deleteMany({ $or: [{ learnerId: { $in: testUserIds } }, { teacherId: { $in: testUserIds } }] });
+        await Skill.deleteMany({ userId: { $in: testUserIds } });
+        await Notification.deleteMany({ userId: { $in: testUserIds } });
+        await User.deleteMany({ _id: { $in: testUserIds } });
       }
       console.log('✅ Cleaned up temporary test users, skills, and appointments.');
     } catch (cleanErr: any) {

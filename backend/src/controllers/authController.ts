@@ -57,15 +57,25 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    // Validate role if specified
-    const validRoles = ['learner', 'teacher', 'admin'];
-    if (role && !validRoles.includes(role)) {
-      res.status(400).json({
+    // Security check: Public registration must NEVER allow creating an admin account
+    if (role === 'admin') {
+      res.status(403).json({
         success: false,
-        message: 'Invalid role specified. Role must be learner, teacher, or admin.',
+        message: 'Admin accounts cannot be created through public registration.',
       });
       return;
     }
+
+    const allowedPublicRoles = ['learner', 'teacher'];
+    if (role && !allowedPublicRoles.includes(role)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid role specified. Public registration only allows "learner" or "teacher".',
+      });
+      return;
+    }
+
+    const finalRole: 'learner' | 'teacher' = role === 'teacher' ? 'teacher' : 'learner';
 
     // 2. Check for duplicate email
     const existingUserByEmail = await User.findOne({ email: cleanEmail });
@@ -122,13 +132,13 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       name: name.trim(),
       email: cleanEmail,
       password,
-      role,
+      role: finalRole,
       phoneNumber: cleanPhone,
       countryCode,
       dateOfBirth,
       age,
       avatarUrl: avatarUrl || '',
-      avatarBgColor: role === 'teacher' ? '#059669' : '#0284c7',
+      avatarBgColor: finalRole === 'teacher' ? '#059669' : '#0284c7',
       headline: headline || '',
       bio: bio || '',
       location: location || '',

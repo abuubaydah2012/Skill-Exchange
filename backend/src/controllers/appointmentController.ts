@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Appointment } from '../models/Appointment.js';
+import { Skill } from '../models/Skill.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
@@ -31,7 +32,6 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
 
     const finalDate = requestedDate || appointmentDate;
     const finalDuration = durationMinutes || duration || 60;
-    const finalPrice = totalCost || price || 0;
 
     if (!teacherId || !skillId || !finalDate || !startTime) {
       res.status(400).json({
@@ -50,20 +50,75 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
       return;
     }
 
+    // Securely retrieve and validate target skill from database
+    const targetSkill = await Skill.findById(skillId);
+    if (!targetSkill) {
+      res.status(404).json({
+        success: false,
+        message: 'The requested skill was not found in the catalog.',
+      });
+      return;
+    }
+
+    if (targetSkill.userId.toString() !== teacherId.toString()) {
+      res.status(400).json({
+        success: false,
+        message: 'The requested skill does not belong to the specified instructor.',
+      });
+      return;
+    }
+
+    // Securely retrieve and validate teacher
+    const targetTeacher = await User.findById(teacherId);
+    if (!targetTeacher || targetTeacher.isSuspended) {
+      res.status(404).json({
+        success: false,
+        message: 'The requested instructor was not found or is currently unavailable.',
+      });
+      return;
+    }
+
+    // Securely compute pricing on backend (never trust client-sent price)
+    let finalHourlyPrice = 0;
+    let finalTotalCost = 0;
+    const isFree = Boolean(isFreeSwap);
+
+    if (isFree) {
+      if (!targetSkill.freeSwapAvailable) {
+        res.status(400).json({
+          success: false,
+          message: 'This skill is not currently available for free skill swaps.',
+        });
+        return;
+      }
+      finalHourlyPrice = 0;
+      finalTotalCost = 0;
+    } else {
+      if (!targetSkill.paidLessonAvailable) {
+        res.status(400).json({
+          success: false,
+          message: 'This skill is not currently offered as a paid lesson.',
+        });
+        return;
+      }
+      finalHourlyPrice = targetSkill.hourlyPrice;
+      finalTotalCost = Math.round((targetSkill.hourlyPrice * (finalDuration / 60)) * 100) / 100;
+    }
+
     const appointment = await Appointment.create({
       learnerId: req.user._id,
       teacherId,
       skillId,
-      skillName: skillName || 'Skill Consultation',
+      skillName: targetSkill.name,
       requestedDate: finalDate,
       startTime,
       durationMinutes: finalDuration,
-      isFreeSwap,
+      isFreeSwap: isFree,
       offeredSwapSkillName,
-      hourlyPrice,
-      totalCost: finalPrice,
+      hourlyPrice: finalHourlyPrice,
+      totalCost: finalTotalCost,
       message,
-      appointmentType: appointmentType || (isFreeSwap ? 'Free' : 'Paid'),
+      appointmentType: isFree ? 'Free' : 'Paid',
       meetingId: `meet-${Math.random().toString(36).substring(2, 9)}`,
     });
 
@@ -71,7 +126,7 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
     await Notification.create({
       userId: teacherId,
       title: 'New Appointment Request',
-      message: `${req.user.name} requested a ${isFreeSwap ? 'Free Swap' : 'Paid'} session for ${skillName || 'your skill'} on ${finalDate}.`,
+      message: `${req.user.name} requested a ${isFree ? 'Free Swap' : 'Paid'} session for "${targetSkill.name}" on ${finalDate}.`,
       category: 'Appointments',
       relatedAppointmentId: appointment._id,
       actionUrl: '/appointments',
@@ -213,13 +268,41 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
     }
 
     const previousStatus = appointment.status;
+
+    // Idempotency check: if appointment is already completed, return without re-incrementing counters
+    if (status === 'Completed') {
+      if (previousStatus === 'Completed') {
+        res.status(200).json({
+          success: true,
+          message: 'Appointment has already been completed.',
+          data: appointment,
+        });
+        return;
+      }
+      if (previousStatus === 'Cancelled' || previousStatus === 'Rejected') {
+        res.status(400).json({
+          success: false,
+          message: `Cannot complete an appointment that was previously ${previousStatus.toLowerCase()}.`,
+        });
+        return;
+      }
+    }
+
+    if ((status === 'Accepted' || status === 'Rejected') && (previousStatus === 'Completed' || previousStatus === 'Cancelled')) {
+      res.status(400).json({
+        success: false,
+        message: `Cannot change status to ${status} on an appointment that is already ${previousStatus.toLowerCase()}.`,
+      });
+      return;
+    }
+
     appointment.status = status;
     if (cancellationReason) {
       appointment.cancellationReason = cancellationReason;
     }
     await appointment.save();
 
-    // If transitioned to Completed, increment completed sessions count for both participants
+    // If transitioned to Completed, increment completed sessions count for both participants exactly once
     if (status === 'Completed' && previousStatus !== 'Completed') {
       await User.updateMany(
         { _id: { $in: [appointment.learnerId, appointment.teacherId] } },
