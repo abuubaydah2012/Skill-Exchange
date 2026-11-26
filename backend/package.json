@@ -10,6 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "seed": "tsx src/scripts/seed.ts",
     "test:db": "tsx src/scripts/verify-connection.ts",
+    "test:api": "tsx src/scripts/test-api-suite.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

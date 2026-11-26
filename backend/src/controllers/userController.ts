@@ -73,6 +73,33 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
+export const getProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
+      return;
+    }
+
+    const [skills, certificates, reviews] = await Promise.all([
+      Skill.find({ userId: req.user._id }).sort({ createdAt: -1 }),
+      Certificate.find({ userId: req.user._id }),
+      Review.find({ reviewedUserId: req.user._id, isFlagged: false }).populate('reviewerId', 'name avatarUrl'),
+    ]);
+
+    const userObj = req.user.toJSON();
+    (userObj as any).teachingSkills = skills;
+    (userObj as any).certificates = certificates;
+    (userObj as any).reviews = reviews;
+
+    res.status(200).json({
+      success: true,
+      data: userObj,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (!req.user) {
@@ -88,14 +115,30 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response, ne
       'languages',
       'learningInterests',
       'avatarUrl',
-      'phoneNumber',
       'profileVisibility',
+      'countryCode',
+      'dateOfBirth',
     ];
 
     const updates: Record<string, unknown> = {};
     for (const key of allowedUpdates) {
       if (req.body[key] !== undefined) {
         updates[key] = req.body[key];
+      }
+    }
+
+    // Check phone number duplication if provided
+    if (req.body.phoneNumber !== undefined) {
+      if (typeof req.body.phoneNumber === 'string' && req.body.phoneNumber.trim().length > 0) {
+        const cleanPhone = req.body.phoneNumber.trim();
+        const existing = await User.findOne({ phoneNumber: cleanPhone, _id: { $ne: req.user._id } });
+        if (existing) {
+          res.status(409).json({ success: false, message: 'An account with this phone number already exists.' });
+          return;
+        }
+        updates.phoneNumber = cleanPhone;
+      } else {
+        updates.phoneNumber = '';
       }
     }
 

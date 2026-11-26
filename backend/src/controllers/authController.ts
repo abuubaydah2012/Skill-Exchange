@@ -11,7 +11,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       password,
       role = 'learner',
       phoneNumber,
-      countryCode,
+      countryCode = '+1',
       dateOfBirth,
       identityDocument,
       avatarUrl,
@@ -22,17 +22,54 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       learningInterests,
     } = req.body;
 
-    if (!name || !email || !password) {
+    // 1. Validate required fields
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
       res.status(400).json({
         success: false,
-        message: 'Name, email, and password are required fields.',
+        message: 'Name is required and must be at least 2 characters long.',
       });
       return;
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
+    if (!email || typeof email !== 'string') {
+      res.status(400).json({
+        success: false,
+        message: 'Email address is required.',
+      });
+      return;
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const emailRegex = /^\S+@\S+\.\S+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address.',
+      });
+      return;
+    }
+
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      res.status(400).json({
+        success: false,
+        message: 'Password is required and must be at least 6 characters long.',
+      });
+      return;
+    }
+
+    // Validate role if specified
+    const validRoles = ['learner', 'teacher', 'admin'];
+    if (role && !validRoles.includes(role)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid role specified. Role must be learner, teacher, or admin.',
+      });
+      return;
+    }
+
+    // 2. Check for duplicate email
+    const existingUserByEmail = await User.findOne({ email: cleanEmail });
+    if (existingUserByEmail) {
       res.status(409).json({
         success: false,
         message: 'An account with this email address already exists.',
@@ -40,12 +77,28 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
+    // 3. Check for duplicate phone number if provided
+    let cleanPhone: string | undefined;
+    if (phoneNumber && typeof phoneNumber === 'string' && phoneNumber.trim().length > 0) {
+      cleanPhone = phoneNumber.trim();
+      const existingUserByPhone = await User.findOne({ phoneNumber: cleanPhone });
+      if (existingUserByPhone) {
+        res.status(409).json({
+          success: false,
+          message: 'An account with this phone number already exists.',
+        });
+        return;
+      }
+    }
+
     // Compute age if dateOfBirth provided
     let age: number | undefined;
     if (dateOfBirth) {
       const birth = new Date(dateOfBirth);
-      const diff = Date.now() - birth.getTime();
-      age = Math.abs(new Date(diff).getUTCFullYear() - 1970);
+      if (!isNaN(birth.getTime())) {
+        const diff = Date.now() - birth.getTime();
+        age = Math.abs(new Date(diff).getUTCFullYear() - 1970);
+      }
     }
 
     // Prepare identity verification object if provided
@@ -64,13 +117,13 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       accountVerificationStatus = 'Pending Verification';
     }
 
-    // Create user
+    // Create user (password is automatically hashed via UserSchema.pre('save'))
     const newUser = await User.create({
-      name,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      email: cleanEmail,
       password,
       role,
-      phoneNumber,
+      phoneNumber: cleanPhone,
       countryCode,
       dateOfBirth,
       age,
@@ -79,13 +132,13 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       headline: headline || '',
       bio: bio || '',
       location: location || '',
-      languages: languages || ['English'],
-      learningInterests: learningInterests || [],
+      languages: Array.isArray(languages) ? languages : ['English'],
+      learningInterests: Array.isArray(learningInterests) ? learningInterests : [],
       identityVerification: identityVerificationData,
       accountVerificationStatus,
     });
 
-    // Generate JWT
+    // Generate JWT token
     const token = generateToken(newUser._id, newUser.email, newUser.role);
 
     res.status(201).json({
@@ -105,7 +158,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       res.status(400).json({
         success: false,
         message: 'Email and password are required.',
@@ -113,8 +166,10 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
+    const cleanEmail = email.toLowerCase().trim();
+
     // Fetch user and explicitly select password
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    const user = await User.findOne({ email: cleanEmail }).select('+password');
     if (!user) {
       res.status(401).json({
         success: false,

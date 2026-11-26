@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Appointment } from '../models/Appointment.js';
+import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 
@@ -93,13 +94,27 @@ export const getAppointments = async (req: AuthenticatedRequest, res: Response, 
       return;
     }
 
-    const filter = req.user.role === 'admin'
-      ? {}
-      : { $or: [{ learnerId: req.user._id }, { teacherId: req.user._id }] };
+    const { status, role } = req.query;
+    const filter: Record<string, unknown> = {};
+
+    if (req.user.role === 'admin' && !role) {
+      // Admin sees all appointments
+    } else if (role === 'teacher') {
+      filter.teacherId = req.user._id;
+    } else if (role === 'learner') {
+      filter.learnerId = req.user._id;
+    } else {
+      filter.$or = [{ learnerId: req.user._id }, { teacherId: req.user._id }];
+    }
+
+    if (status && typeof status === 'string' && status !== 'All') {
+      filter.status = status;
+    }
 
     const appointments = await Appointment.find(filter)
-      .populate('learnerId', 'name email avatarUrl avatarBgColor')
-      .populate('teacherId', 'name email avatarUrl avatarBgColor')
+      .populate('learnerId', 'name email avatarUrl avatarBgColor phoneNumber')
+      .populate('teacherId', 'name email avatarUrl avatarBgColor phoneNumber')
+      .populate('skillId', 'name category proficiency hourlyPrice')
       .sort({ requestedDate: -1, startTime: -1 });
 
     res.status(200).json({
@@ -150,6 +165,15 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
     const { id } = req.params;
     const { status, cancellationReason } = req.body;
 
+    const validStatuses = ['Pending', 'Accepted', 'Rejected', 'Cancelled', 'Completed'];
+    if (!status || !validStatuses.includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: `Invalid status. Status must be one of: ${validStatuses.join(', ')}.`,
+      });
+      return;
+    }
+
     const appointment = await Appointment.findById(id);
     if (!appointment) {
       res.status(404).json({ success: false, message: 'Appointment not found.' });
@@ -158,24 +182,57 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
 
     const userId = req.user?._id.toString();
     const isTeacher = appointment.teacherId.toString() === userId;
+    const isLearner = appointment.learnerId.toString() === userId;
     const isAdmin = req.user?.role === 'admin';
 
-    if (!isTeacher && !isAdmin) {
-      res.status(403).json({ success: false, message: 'Only the designated instructor or administrator can update this status.' });
-      return;
+    // Role-based status authorization:
+    if (status === 'Accepted' || status === 'Rejected') {
+      if (!isTeacher && !isAdmin) {
+        res.status(403).json({
+          success: false,
+          message: 'Only the designated instructor or administrator can accept or reject an appointment request.',
+        });
+        return;
+      }
+    } else if (status === 'Completed') {
+      if (!isTeacher && !isLearner && !isAdmin) {
+        res.status(403).json({
+          success: false,
+          message: 'Only session participants or administrators can complete an appointment.',
+        });
+        return;
+      }
+    } else if (status === 'Cancelled') {
+      if (!isTeacher && !isLearner && !isAdmin) {
+        res.status(403).json({
+          success: false,
+          message: 'Only appointment participants or administrators can cancel this session.',
+        });
+        return;
+      }
     }
 
+    const previousStatus = appointment.status;
     appointment.status = status;
     if (cancellationReason) {
       appointment.cancellationReason = cancellationReason;
     }
     await appointment.save();
 
-    // Notify the student of status change
+    // If transitioned to Completed, increment completed sessions count for both participants
+    if (status === 'Completed' && previousStatus !== 'Completed') {
+      await User.updateMany(
+        { _id: { $in: [appointment.learnerId, appointment.teacherId] } },
+        { $inc: { completedSessionsCount: 1 } }
+      );
+    }
+
+    // Notify the other party of status change
+    const targetUserId = isTeacher ? appointment.learnerId : appointment.teacherId;
     await Notification.create({
-      userId: appointment.learnerId,
+      userId: targetUserId,
       title: `Appointment ${status}`,
-      message: `Your appointment request for ${appointment.skillName} has been ${status.toLowerCase()}.`,
+      message: `Your appointment for ${appointment.skillName} scheduled for ${appointment.requestedDate} is now ${status.toLowerCase()}.${cancellationReason ? ` Reason: ${cancellationReason}` : ''}`,
       category: 'Appointments',
       relatedAppointmentId: appointment._id,
       actionUrl: '/appointments',
@@ -189,6 +246,21 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
   } catch (error) {
     next(error);
   }
+};
+
+export const acceptAppointment = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  req.body.status = 'Accepted';
+  return updateAppointmentStatus(req, res, next);
+};
+
+export const rejectAppointment = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  req.body.status = 'Rejected';
+  return updateAppointmentStatus(req, res, next);
+};
+
+export const completeAppointment = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  req.body.status = 'Completed';
+  return updateAppointmentStatus(req, res, next);
 };
 
 export const cancelAppointment = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {

@@ -41,6 +41,25 @@ export const getSkills = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
+export const getSkillById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const skill = await Skill.findById(id).populate('userId', 'name role avatarUrl avatarBgColor rating location');
+
+    if (!skill) {
+      res.status(404).json({ success: false, message: 'Skill not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: skill,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createSkill = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (!req.user) {
