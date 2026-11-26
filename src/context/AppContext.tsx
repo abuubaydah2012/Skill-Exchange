@@ -43,6 +43,15 @@ import {
   INITIAL_NOTIFICATIONS,
   INITIAL_ANNOUNCEMENTS,
 } from '../data/seedData';
+import {
+  authApi,
+  skillApi,
+  appointmentApi,
+  notificationApi,
+  reviewApi,
+  certificateApi,
+  TOKEN_STORAGE_KEY,
+} from '../services/api';
 
 const STORAGE_KEY = 'SKILL_EXCHANGE_STORAGE_V1';
 const THEME_STORAGE_KEY = 'SKILL_EXCHANGE_THEME_V1';
@@ -421,6 +430,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   }, [reviews]);
 
+  // Synchronize authenticated session from MongoDB Atlas API on mount
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (!token) return;
+
+    authApi
+      .getMe()
+      .then((res) => {
+        if (res.success && res.data) {
+          const u = res.data;
+          const adaptedUser: UserProfile = {
+            id: u._id || u.id,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            avatarUrl: u.avatarUrl || '',
+            avatarBgColor: u.avatarBgColor || '#0284c7',
+            headline: u.headline || '',
+            bio: u.bio || '',
+            location: u.location || '',
+            languages: u.languages || ['English'],
+            teachingSkills: u.teachingSkills || [],
+            learningInterests: u.learningInterests || [],
+            certificates: u.certificates || [],
+            experience: u.experience || [],
+            education: u.education || [],
+            portfolioLinks: u.portfolioLinks || [],
+            phoneNumber: u.phoneNumber,
+            countryCode: u.countryCode,
+            dateOfBirth: u.dateOfBirth,
+            age: u.age,
+            accountVerificationStatus: u.accountVerificationStatus || 'Unverified',
+            identityVerification: u.identityVerification,
+            isProfileVerified: Boolean(u.isProfileVerified),
+            isSuspended: Boolean(u.isSuspended),
+            twoFactorEnabled: Boolean(u.twoFactorEnabled),
+            profileVisibility: u.profileVisibility || 'public',
+            rating: u.rating || 5.0,
+            reviewCount: u.reviewCount || 0,
+            completedSessionsCount: u.completedSessionsCount || 0,
+            totalEarnings: u.totalEarnings || 0,
+            createdAt: u.createdAt || new Date().toISOString(),
+          };
+          setCurrentUser(adaptedUser);
+          setUsers((prev) => {
+            const exists = prev.some((x) => x.email.toLowerCase() === u.email.toLowerCase());
+            return exists
+              ? prev.map((x) => (x.email.toLowerCase() === u.email.toLowerCase() ? adaptedUser : x))
+              : [adaptedUser, ...prev];
+          });
+        }
+      })
+      .catch(() => {
+        // Backend offline or token expired; local state remains active
+      });
+  }, []);
+
   // Reset Demo Data
   const resetDemoData = useCallback(() => {
     setUsers(INITIAL_USERS);
@@ -446,6 +512,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     async (email: string, password: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
       const cleanEmail = email.toLowerCase().trim();
 
+      // 1. Attempt backend authentication via MongoDB Atlas API
+      try {
+        const apiRes = await authApi.login(cleanEmail, password);
+        if (apiRes.success && apiRes.data?.user && apiRes.data.token) {
+          const { user: backendUser, token } = apiRes.data;
+          localStorage.setItem(TOKEN_STORAGE_KEY, token);
+
+          // Adapt backend user model to UserProfile
+          const adaptedUser: UserProfile = {
+            id: backendUser._id || backendUser.id,
+            email: backendUser.email,
+            name: backendUser.name,
+            role: backendUser.role,
+            avatarUrl: backendUser.avatarUrl || '',
+            avatarBgColor: backendUser.avatarBgColor || '#0284c7',
+            headline: backendUser.headline || '',
+            bio: backendUser.bio || '',
+            location: backendUser.location || '',
+            languages: backendUser.languages || ['English'],
+            teachingSkills: backendUser.teachingSkills || [],
+            learningInterests: backendUser.learningInterests || [],
+            certificates: backendUser.certificates || [],
+            experience: backendUser.experience || [],
+            education: backendUser.education || [],
+            portfolioLinks: backendUser.portfolioLinks || [],
+            phoneNumber: backendUser.phoneNumber,
+            countryCode: backendUser.countryCode,
+            dateOfBirth: backendUser.dateOfBirth,
+            age: backendUser.age,
+            accountVerificationStatus: backendUser.accountVerificationStatus || 'Unverified',
+            identityVerification: backendUser.identityVerification,
+            isProfileVerified: Boolean(backendUser.isProfileVerified),
+            isSuspended: Boolean(backendUser.isSuspended),
+            twoFactorEnabled: Boolean(backendUser.twoFactorEnabled),
+            profileVisibility: backendUser.profileVisibility || 'public',
+            rating: backendUser.rating || 5.0,
+            reviewCount: backendUser.reviewCount || 0,
+            completedSessionsCount: backendUser.completedSessionsCount || 0,
+            totalEarnings: backendUser.totalEarnings || 0,
+            createdAt: backendUser.createdAt || new Date().toISOString(),
+          };
+
+          setCurrentUser(adaptedUser);
+          setUsers((prev) => {
+            const exists = prev.some((u) => u.email.toLowerCase() === cleanEmail);
+            return exists
+              ? prev.map((u) => (u.email.toLowerCase() === cleanEmail ? adaptedUser : u))
+              : [adaptedUser, ...prev];
+          });
+
+          addToast('success', 'Connected to MongoDB Atlas', `Welcome back, ${adaptedUser.name}!`);
+          return { success: true };
+        }
+      } catch (err) {
+        // Backend unavailable; continue with local demo authentication fallback below
+      }
+
+      // 2. Local fallback / demo accounts
       // Check lockout
       if (lockedAccounts.includes(cleanEmail)) {
         return {
@@ -619,6 +743,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const logout = useCallback(() => {
+    authApi.logout();
     setCurrentUser(null);
     setOtpState(null);
     addToast('info', 'Signed Out', 'You have been safely signed out.');
@@ -730,14 +855,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 7. Secure cryptographic password hashing (never store plain text)
       const passwordHash = await hashPassword(data.password);
 
-      const newUserId = 'usr-' + Math.random().toString(36).substring(2, 9);
+      let effectiveUserId = 'usr-' + Math.random().toString(36).substring(2, 9);
+      try {
+        const apiRes = await authApi.register({
+          name: data.name.trim(),
+          email: cleanEmail,
+          password: data.password,
+          role: data.role,
+          phoneNumber: `${data.countryCode} ${data.phoneNumber.trim()}`,
+          countryCode: data.countryCode,
+          dateOfBirth: data.dateOfBirth,
+          age: calculatedAge,
+          identityDocument: {
+            documentType: data.identityDocument.type,
+            documentNumber: data.identityDocument.documentNumber.trim(),
+            documentFileName: data.identityDocument.fileName,
+            documentFileSize: data.identityDocument.fileSize,
+            documentUrl: data.identityDocument.fileData,
+          },
+          certificates: data.certificates?.map((c) => ({
+            title: c.title || c.fileName.replace(/\.pdf$/i, ''),
+            issuingOrganization: c.issuingOrganization || 'Verified Educational/Professional Institution',
+            issueDate: new Date().toISOString().split('T')[0],
+            relatedSkill: c.title || 'General Credential',
+            fileName: c.fileName,
+            fileSize: c.fileSize,
+            fileData: c.fileData,
+          })),
+        });
+        if (apiRes.success && apiRes.data?.user && apiRes.data.token) {
+          effectiveUserId = apiRes.data.user._id || apiRes.data.user.id || effectiveUserId;
+          localStorage.setItem(TOKEN_STORAGE_KEY, apiRes.data.token);
+        }
+      } catch {
+        // Backend offline; continue with local registration fallback
+      }
+
       const colors = ['#0284c7', '#059669', '#d97706', '#9333ea', '#e11d48', '#2563eb', '#0891b2', '#7c3aed'];
       const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
       // 8. Convert uploaded certificates
       const formattedCertificates: Certificate[] = (data.certificates || []).map((c) => ({
         id: 'cert-' + Math.random().toString(36).substring(2, 9),
-        userId: newUserId,
+        userId: effectiveUserId,
         title: c.title || c.fileName.replace(/\.pdf$/i, ''),
         issuingOrganization: c.issuingOrganization || 'Verified Educational/Professional Institution',
         issueDate: new Date().toISOString().split('T')[0],
@@ -751,7 +911,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 9. Build registered user profile
       const newUser: UserProfile = {
-        id: newUserId,
+        id: effectiveUserId,
         email: cleanEmail,
         name: data.name.trim(),
         role: data.role,
@@ -800,7 +960,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 11. Create welcome notifications
       const userNotif: PlatformNotification = {
         id: 'notif-' + Math.random().toString(36).substring(2, 9),
-        userId: newUserId,
+        userId: effectiveUserId,
         title: 'Identity Verification Submitted',
         message: `Welcome to Skill Exchange! Your ${data.identityDocument.type} has been received and is queued for administrative verification.`,
         category: 'Verifications',
@@ -854,6 +1014,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       const updatedSkills = [...currentUser.teachingSkills, newSkill];
       updateProfile({ teachingSkills: updatedSkills });
+      // Sync with MongoDB backend if available
+      skillApi
+        .createSkill({
+          name: skillData.name,
+          category: skillData.category,
+          proficiency: skillData.proficiency,
+          description: skillData.description,
+          yearsExperience: skillData.yearsExperience,
+          freeSwapAvailable: skillData.freeSwapAvailable,
+          paidLessonAvailable: skillData.paidLessonAvailable,
+          hourlyPrice: skillData.hourlyPrice,
+          availabilitySchedule: skillData.availabilitySchedule,
+        })
+        .catch(() => {});
       addToast('success', 'Skill Added', `Added "${skillData.name}" to your teaching repertoire.`);
     },
     [currentUser, updateProfile, addToast]
@@ -920,6 +1094,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       const updatedCerts = [...currentUser.certificates, newCert];
       updateProfile({ certificates: updatedCerts });
+
+      // Sync with MongoDB backend if available
+      certificateApi
+        .createCertificate({
+          title: certData.title,
+          issuingOrganization: certData.issuingOrganization,
+          issueDate: certData.issueDate,
+          relatedSkill: certData.relatedSkill,
+          fileName: certData.fileName,
+          fileSize: certData.fileSize,
+          fileData: certData.fileData,
+        })
+        .catch(() => {});
 
       // Add admin notification
       const adminNotif: PlatformNotification = {
@@ -991,6 +1178,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setAppointments((prev) => [newApt, ...prev]);
 
+      // Sync with MongoDB backend if available
+      appointmentApi
+        .createAppointment({
+          teacherId: aptData.teacherId,
+          skillId: aptData.skillId,
+          requestedDate: aptData.requestedDate,
+          startTime: aptData.startTime,
+          durationMinutes: aptData.durationMinutes,
+          isFreeSwap: aptData.isFreeSwap,
+          offeredSwapSkillName: aptData.offeredSwapSkillName,
+          hourlyPrice: aptData.hourlyPrice,
+          totalCost: aptData.totalCost,
+          message: aptData.message,
+        })
+        .catch(() => {});
+
       // Notify teacher
       const notif: PlatformNotification = {
         id: 'notif-' + Math.random().toString(36).substring(2, 9),
@@ -1016,6 +1219,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateAppointmentStatus = useCallback(
     (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => {
+      // Sync with MongoDB backend if available
+      appointmentApi.updateStatus(appointmentId, status, cancellationReason).catch(() => {});
+
       setAppointments((prev) =>
         prev.map((apt) => {
           if (apt.id !== appointmentId) return apt;
@@ -1347,6 +1553,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setReviews((prev) => [newReview, ...prev]);
 
+      // Sync with MongoDB backend if available
+      reviewApi
+        .createReview({
+          reviewedUserId: reviewData.reviewedUserId,
+          sessionId: reviewData.sessionId,
+          rating: reviewData.rating,
+          comment: reviewData.comment,
+        })
+        .catch(() => {});
+
       // Notification for reviewed user
       const notif: PlatformNotification = {
         id: 'notif-' + Math.random().toString(36).substring(2, 9),
@@ -1557,6 +1773,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Notifications
   const markNotificationAsRead = useCallback((notificationId: string) => {
+    notificationApi.markAsRead(notificationId).catch(() => {});
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
     );
@@ -1564,6 +1781,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markAllNotificationsAsRead = useCallback(() => {
     if (!currentUser) return;
+    notificationApi.markAllAsRead().catch(() => {});
     setNotifications((prev) =>
       prev.map((n) => (n.userId === currentUser.id ? { ...n, isRead: true } : n))
     );
