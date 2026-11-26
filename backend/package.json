@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "seed": "tsx src/scripts/seed.ts",
+    "test:db": "tsx src/scripts/verify-connection.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
