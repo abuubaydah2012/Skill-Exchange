@@ -315,8 +315,15 @@ export const RegisterForm: React.FC = () => {
     } else {
       try {
         const check = await authApi.checkEmail(cleanEmail);
-        if (check.success && check.data && !check.data.available) {
-          newErrors.email = check.data.message || 'An account with this email address already exists.';
+        const isAvailable =
+          check.data?.available !== undefined
+            ? check.data.available
+            : (check as any).available;
+        if (check.success && isAvailable === false) {
+          newErrors.email =
+            check.data?.message ||
+            check.message ||
+            'An account with this email address already exists.';
         }
       } catch {
         // Fallback to submission-time backend check if check-email endpoint fails
@@ -404,6 +411,7 @@ export const RegisterForm: React.FC = () => {
       };
 
       const result = await registerUser(registrationPayload);
+      console.log('[RegisterForm] Registration outcome:', result);
 
       if (result.success) {
         navigate('/dashboard');

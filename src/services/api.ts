@@ -58,6 +58,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         headers,
       });
 
+      console.log(`[API] ${options.method || 'GET'} ${targetUrl}`);
       const text = await response.text();
       let data: any = {};
       try {
@@ -73,7 +74,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
           (data.errors && typeof data.errors === 'object'
             ? Object.values(data.errors).join(', ')
             : undefined) ||
-          `Request failed with status ${response.status}`;
+          data.data?.message ||
+          data.data?.error ||
+          `Backend error (HTTP ${response.status}): ${response.statusText || 'Request failed'}`;
+        console.warn(`[API] Response error on ${targetUrl}:`, { status: response.status, errorDetail, data });
         return {
           success: false,
           message: errorDetail,
@@ -82,18 +86,24 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         };
       }
 
+      console.log(`[API] Success ${targetUrl} (HTTP ${response.status})`);
       return data as ApiResponse<T>;
     } catch (err: any) {
       lastError = err;
+      console.warn(`[API] Attempt on ${targetUrl} failed:`, err?.message);
       // Continue to next candidate URL (e.g. 127.0.0.1 or /api) if network/CORS error occurs on this address
       continue;
     }
   }
 
-  console.warn(`[API] Network error communicating with ${primaryUrl}:`, lastError?.message);
+  const networkErrMsg = lastError?.message
+    ? `Network error: ${lastError.message}. Tried ${candidateUrls.join(', ')}`
+    : `Could not connect to backend server. Tried ${candidateUrls.join(', ')}`;
+  console.warn(`[API] All candidate URLs failed for ${primaryUrl}:`, networkErrMsg);
   return {
     success: false,
-    message: lastError?.message || 'Network error connecting to backend service.',
+    message: networkErrMsg,
+    error: networkErrMsg,
   };
 }
 

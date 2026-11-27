@@ -923,7 +923,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const errorMsg =
           apiRes?.message ||
           apiRes?.error ||
-          'Registration failed on backend server. Please verify your information.';
+          ((apiRes as any)?.errors && typeof (apiRes as any).errors === 'object'
+            ? Object.values((apiRes as any).errors).join(', ')
+            : undefined) ||
+          (apiRes as any)?.data?.message ||
+          (apiRes as any)?.data?.error ||
+          (apiRes
+            ? `Backend returned status ${apiRes.success ? 'success without user session' : 'failure'}. Please check server logs.`
+            : 'Could not connect to backend server. Please ensure backend is running.');
+        console.error('[AppContext] Registration rejected by backend API:', {
+          apiRes,
+          cleanEmail,
+          formattedPhone,
+          errorMsg,
+        });
         return {
           success: false,
           error: errorMsg,
