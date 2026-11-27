@@ -246,24 +246,33 @@ export const checkEmailAvailability = async (req: Request, res: Response, next: 
 
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, identifier } = req.body;
+    const loginIdentifier = (identifier || email);
 
-    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
+    if (!loginIdentifier || typeof loginIdentifier !== 'string' || !password || typeof password !== 'string') {
       res.status(400).json({
         success: false,
-        message: 'Email and password are required.',
+        message: 'Email or phone number and password are required.',
       });
       return;
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanIdentifier = loginIdentifier.trim();
+    const cleanEmail = cleanIdentifier.toLowerCase();
+    const normalizedPhone = cleanIdentifier.replace(/[\s\-()]/g, '');
 
-    // Fetch user and explicitly select password
-    const user = await User.findOne({ email: cleanEmail }).select('+password');
+    // Fetch user by email or phoneNumber and explicitly select password
+    const user = await User.findOne({
+      $or: [
+        { email: cleanEmail },
+        { phoneNumber: cleanIdentifier },
+        { phoneNumber: normalizedPhone },
+      ],
+    }).select('+password');
     if (!user) {
       res.status(401).json({
         success: false,
-        message: 'Invalid email or password.',
+        message: 'Invalid email, phone number, or password.',
       });
       return;
     }
@@ -280,7 +289,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     if (!isMatch) {
       res.status(401).json({
         success: false,
-        message: 'Invalid email or password.',
+        message: 'Invalid email, phone number, or password.',
       });
       return;
     }

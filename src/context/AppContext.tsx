@@ -96,7 +96,7 @@ interface AppContextType {
   resetDemoData: () => void;
 
   // Auth
-  login: (email: string, password: string) => Promise<{ success: boolean; requiresOtp?: boolean; error?: string }>;
+  login: (identifier: string, password: string) => Promise<{ success: boolean; requiresOtp?: boolean; error?: string }>;
   loginWithDemoRole: (role: UserRole) => void;
   verifyOtp: (inputCode: string) => boolean;
   resendOtp: () => string;
@@ -509,12 +509,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Authentication Flows
   const login = useCallback(
-    async (email: string, password: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
-      const cleanEmail = email.toLowerCase().trim();
+    async (identifier: string, password: string): Promise<{ success: boolean; requiresOtp?: boolean; error?: string }> => {
+      const cleanIdentifier = identifier.trim();
+      const cleanEmail = cleanIdentifier.toLowerCase();
+      const normalizedPhone = cleanIdentifier.replace(/[\s\-()]/g, '');
 
       // 1. Attempt backend authentication via MongoDB Atlas API
       try {
-        const apiRes = await authApi.login(cleanEmail, password);
+        const apiRes = await authApi.login(cleanIdentifier, password);
         if (apiRes.success && apiRes.data?.user && apiRes.data.token) {
           const { user: backendUser, token } = apiRes.data;
           localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -556,9 +558,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           setCurrentUser(adaptedUser);
           setUsers((prev) => {
-            const exists = prev.some((u) => u.email.toLowerCase() === cleanEmail);
+            const exists = prev.some((u) => u.email.toLowerCase() === adaptedUser.email.toLowerCase());
             return exists
-              ? prev.map((u) => (u.email.toLowerCase() === cleanEmail ? adaptedUser : u))
+              ? prev.map((u) => (u.email.toLowerCase() === adaptedUser.email.toLowerCase() ? adaptedUser : u))
               : [adaptedUser, ...prev];
           });
 
@@ -571,19 +573,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. Local fallback / demo accounts
       // Check lockout
-      if (lockedAccounts.includes(cleanEmail)) {
+      if (lockedAccounts.includes(cleanEmail) || lockedAccounts.includes(cleanIdentifier)) {
         return {
           success: false,
           error: 'Account locked due to 5 consecutive failed login attempts. Use the Account Recovery option.',
         };
       }
 
-      const found = users.find((u) => u.email.toLowerCase() === cleanEmail);
+      const found = users.find(
+        (u) =>
+          u.email.toLowerCase() === cleanEmail ||
+          (u.phoneNumber && (u.phoneNumber.trim() === cleanIdentifier || u.phoneNumber.replace(/[\s\-()]/g, '') === normalizedPhone))
+      );
       if (!found) {
-        const attempts = (failedAttempts[cleanEmail] || 0) + 1;
-        setFailedAttempts((prev) => ({ ...prev, [cleanEmail]: attempts }));
+        const lockoutKey = cleanEmail;
+        const attempts = (failedAttempts[lockoutKey] || 0) + 1;
+        setFailedAttempts((prev) => ({ ...prev, [lockoutKey]: attempts }));
         if (attempts >= 5) {
-          setLockedAccounts((prev) => [...prev, cleanEmail]);
+          setLockedAccounts((prev) => [...prev, lockoutKey]);
           return {
             success: false,
             error: 'Account locked! 5 consecutive failed login attempts. Recovery required.',
@@ -610,10 +617,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const isDemoMatch = validPasswords.includes(password.trim());
 
       if (!isHashedMatch && !isDemoMatch) {
-        const attempts = (failedAttempts[cleanEmail] || 0) + 1;
-        setFailedAttempts((prev) => ({ ...prev, [cleanEmail]: attempts }));
+        const lockoutKey = found.email.toLowerCase();
+        const attempts = (failedAttempts[lockoutKey] || 0) + 1;
+        setFailedAttempts((prev) => ({ ...prev, [lockoutKey]: attempts }));
         if (attempts >= 5) {
-          setLockedAccounts((prev) => [...prev, cleanEmail]);
+          setLockedAccounts((prev) => [...prev, lockoutKey]);
           return {
             success: false,
             error: 'Account locked! 5 consecutive failed attempts. Recovery required.',
@@ -629,6 +637,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFailedAttempts((prev) => {
         const copy = { ...prev };
         delete copy[cleanEmail];
+        delete copy[found.email.toLowerCase()];
         return copy;
       });
 

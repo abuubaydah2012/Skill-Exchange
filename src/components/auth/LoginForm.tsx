@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { OtpModal, ForgotPasswordModal, LockoutModal } from './AuthModals';
@@ -14,13 +14,30 @@ export const LoginForm: React.FC = () => {
   const { login, loginWithDemoRole, isAccountLocked, currentUser, theme, toggleTheme } = useApp();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('learner@skillexchange.io');
-  const [password, setPassword] = useState('password123');
+  // Controlled login state initialized strictly to empty strings
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  // Interaction gate to prevent automated browser prefill on initial page load
+  const [isReadOnly, setIsReadOnly] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [showLockoutModal, setShowLockoutModal] = useState(false);
+
+  // Clear credentials on component unmount
+  useEffect(() => {
+    return () => {
+      setPassword('');
+      setIdentifier('');
+    };
+  }, []);
+
+  const handleInteraction = () => {
+    if (isReadOnly) {
+      setIsReadOnly(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +45,7 @@ export const LoginForm: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await login(email, password);
+      const result = await login(identifier, password);
       if (result.success) {
         if (result.requiresOtp) {
           setShowOtpModal(true);
@@ -37,12 +54,14 @@ export const LoginForm: React.FC = () => {
         }
       } else {
         setErrorMessage(result.error || 'Failed to sign in.');
+        setPassword('');
         if (result.error?.includes('locked')) {
           setShowLockoutModal(true);
         }
       }
     } catch {
       setErrorMessage('An unexpected error occurred during login.');
+      setPassword('');
     } finally {
       setLoading(false);
     }
@@ -57,7 +76,7 @@ export const LoginForm: React.FC = () => {
     }
   };
 
-  const locked = isAccountLocked(email);
+  const locked = isAccountLocked(identifier);
 
   return (
     <div className="relative min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -143,24 +162,45 @@ export const LoginForm: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-4"
+            autoComplete="off"
+            onFocusCapture={handleInteraction}
+            onMouseDownCapture={handleInteraction}
+          >
             <div>
-              <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                Email Address
+              <label
+                htmlFor="login-identifier"
+                className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1"
+              >
+                Email Address or Phone Number
               </label>
               <input
-                type="email"
+                id="login-identifier"
+                name="username"
+                type="text"
+                inputMode="text"
+                autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full px-3.5 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
+                readOnly={isReadOnly}
+                onFocus={handleInteraction}
+                onMouseDown={handleInteraction}
+                onTouchStart={handleInteraction}
+                onKeyDown={handleInteraction}
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="you@example.com or +1 555-0199"
+                className="w-full px-3.5 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white transition-colors"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                <label
+                  htmlFor="login-password"
+                  className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300"
+                >
                   Password
                 </label>
                 <button
@@ -172,12 +212,20 @@ export const LoginForm: React.FC = () => {
                 </button>
               </div>
               <input
+                id="login-password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
                 required
+                readOnly={isReadOnly}
+                onFocus={handleInteraction}
+                onMouseDown={handleInteraction}
+                onTouchStart={handleInteraction}
+                onKeyDown={handleInteraction}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-3.5 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
+                className="w-full px-3.5 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white transition-colors"
               />
               <span className="text-[10px] text-neutral-400 mt-1 block">
                 Demo password: <code className="bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded">password123</code>
@@ -230,7 +278,7 @@ export const LoginForm: React.FC = () => {
 
       {showLockoutModal && (
         <LockoutModal
-          email={email}
+          email={identifier}
           isOpen={showLockoutModal}
           onClose={() => setShowLockoutModal(false)}
         />

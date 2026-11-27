@@ -6,7 +6,7 @@
 
 A comprehensive platform for free skill swaps and paid expert lessons, featuring deterministic smart matching, interactive appointments, mock payments, messaging, and moderation.
 
-**Live Demo:** https://skill-exchange-ukf2.onrender.com
+**Live Demo:** https://ai.studio/apps/612c9456-a62f-4098-92d8-bc5c76727b62
 
 View your app in AI Studio: https://ai.studio/apps/612c9456-a62f-4098-92d8-bc5c76727b62
 

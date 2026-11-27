@@ -3,10 +3,17 @@
  * Connects the React application to the Express + MongoDB Atlas backend.
  */
 
-// Base API URL: uses Vite environment variable VITE_API_URL if configured,
-// otherwise defaults to local backend port 5000. Normalizes trailing slashes and ensures /api path.
-const rawApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
-export const API_BASE_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
+// Base API URL configuration:
+// - In production, strictly requires VITE_API_URL (points to deployed backend Web Service).
+// - In development, falls back to local backend port 5000 if VITE_API_URL is unset.
+const isProduction = import.meta.env.PROD;
+const envApiUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+
+const resolvedBaseUrl = envApiUrl
+  ? (envApiUrl.endsWith('/api') ? envApiUrl : `${envApiUrl}/api`)
+  : (isProduction ? '' : 'http://localhost:5000/api');
+
+export const API_BASE_URL = resolvedBaseUrl;
 export const TOKEN_STORAGE_KEY = 'SKILL_EXCHANGE_AUTH_TOKEN';
 
 export interface ApiResponse<T = unknown> {
@@ -20,7 +27,9 @@ export interface ApiResponse<T = unknown> {
 
 /**
  * Helper to perform typed fetch requests with automatic JWT authorization header injection.
- * Robust against localhost vs 127.0.0.1 loopback resolution differences and Vite dev proxy.
+ * - Production: uses strict explicit backend Web Service URL; never uses loopback or static site relative fallbacks.
+ * - Development: supports localhost, 127.0.0.1 loopback, and local Vite dev proxy (/api).
+ * - Validates Content-Type, non-empty response, and valid JSON payload.
  */
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
@@ -35,36 +44,85 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // Determine candidate URLs: configured API_BASE_URL, alternate loopback, and relative proxy (/api)
+  // In production, require explicit VITE_API_URL configuration
+  if (isProduction && !API_BASE_URL) {
+    const configError =
+      'Production API URL is not configured. Please set VITE_API_URL in Render Static Site environment settings to your backend Web Service URL (e.g. https://your-backend.onrender.com/api).';
+    console.error('[API Config Error]', configError);
+    return {
+      success: false,
+      message: configError,
+      error: configError,
+    };
+  }
+
   const primaryUrl = `${API_BASE_URL}${endpoint}`;
   const candidateUrls: string[] = [primaryUrl];
 
-  if (primaryUrl.includes('localhost:5000')) {
-    candidateUrls.push(primaryUrl.replace('localhost:5000', '127.0.0.1:5000'));
-  } else if (primaryUrl.includes('127.0.0.1:5000')) {
-    candidateUrls.push(primaryUrl.replace('127.0.0.1:5000', 'localhost:5000'));
-  }
-  const relativeProxyUrl = `/api${endpoint}`;
-  if (!candidateUrls.includes(relativeProxyUrl)) {
-    candidateUrls.push(relativeProxyUrl);
+  // In local development only: support loopback alternatives and Vite dev proxy (/api)
+  if (!isProduction) {
+    if (primaryUrl.includes('localhost:5000')) {
+      candidateUrls.push(primaryUrl.replace('localhost:5000', '127.0.0.1:5000'));
+    } else if (primaryUrl.includes('127.0.0.1:5000')) {
+      candidateUrls.push(primaryUrl.replace('127.0.0.1:5000', 'localhost:5000'));
+    }
+    const relativeProxyUrl = `/api${endpoint}`;
+    if (!candidateUrls.includes(relativeProxyUrl)) {
+      candidateUrls.push(relativeProxyUrl);
+    }
   }
 
   let lastError: any = null;
 
   for (const targetUrl of candidateUrls) {
     try {
+      console.log(`[API] ${options.method || 'GET'} ${targetUrl}`);
       const response = await fetch(targetUrl, {
         ...options,
         headers,
       });
 
-      console.log(`[API] ${options.method || 'GET'} ${targetUrl}`);
+      const contentType = response.headers.get('content-type') || '';
       const text = await response.text();
+
+      // Strict validation: Reject HTML responses (e.g. static hosting SPA fallback)
+      const isHtml =
+        contentType.includes('text/html') ||
+        text.trim().startsWith('<!doctype') ||
+        text.trim().startsWith('<html');
+
+      if (isHtml) {
+        const htmlError = `Backend returned HTML instead of JSON. The API endpoint (${targetUrl}) reached a static site or SPA fallback instead of the Express backend.`;
+        console.error(`[API Error] Non-JSON response on ${targetUrl}:`, htmlError);
+        return {
+          success: false,
+          message: htmlError,
+          error: htmlError,
+        };
+      }
+
+      // Strict validation: Reject empty responses
+      if (!text || text.trim().length === 0) {
+        const emptyError = `Empty response (HTTP ${response.status}) received from ${targetUrl}. Expected JSON API payload.`;
+        console.error(`[API Error] Empty response on ${targetUrl}:`, emptyError);
+        return {
+          success: false,
+          message: emptyError,
+          error: emptyError,
+        };
+      }
+
       let data: any = {};
       try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { message: text || `Request completed with status ${response.status}` };
+        data = JSON.parse(text);
+      } catch (parseErr: any) {
+        const parseErrorMsg = `Invalid JSON response from ${targetUrl}: ${parseErr?.message}`;
+        console.error('[API Error] JSON parse error:', parseErrorMsg, text.slice(0, 200));
+        return {
+          success: false,
+          message: parseErrorMsg,
+          error: parseErrorMsg,
+        };
       }
 
       if (endpoint === '/auth/register') {
@@ -100,12 +158,26 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         };
       }
 
+      // Even on HTTP 2xx, verify logical success flag if present
+      if (data && typeof data === 'object' && data.success === false) {
+        const errorDetail =
+          data.message ||
+          data.error ||
+          `Backend returned failure status (HTTP ${response.status})`;
+        console.warn(`[API] Logical failure on ${targetUrl}:`, errorDetail);
+        return {
+          success: false,
+          message: errorDetail,
+          error: errorDetail,
+          data: data.data || undefined,
+        };
+      }
+
       console.log(`[API] Success ${targetUrl} (HTTP ${response.status})`);
       return data as ApiResponse<T>;
     } catch (err: any) {
       lastError = err;
       console.warn(`[API] Attempt on ${targetUrl} failed:`, err?.message);
-      // Continue to next candidate URL (e.g. 127.0.0.1 or /api) if network/CORS error occurs on this address
       continue;
     }
   }
@@ -131,10 +203,10 @@ export const authApi = {
       body: JSON.stringify(userData),
     }),
 
-  login: (email: string, password: string) =>
+  login: (identifier: string, password: string) =>
     request<{ user: any; token: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email: identifier, identifier, password }),
     }),
 
   checkEmail: (email: string) =>
