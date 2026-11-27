@@ -67,6 +67,20 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         data = { message: text || `Request completed with status ${response.status}` };
       }
 
+      if (endpoint === '/auth/register') {
+        const safeBody = {
+          success: data?.success,
+          message: data?.message,
+          error: data?.error,
+          errors: data?.errors,
+          hasData: Boolean(data?.data),
+          dataKeys: data?.data ? Object.keys(data.data) : null,
+          hasUser: Boolean(data?.data?.user),
+          hasToken: Boolean(data?.data?.token),
+        };
+        console.log(`[Diagnostic:api.ts] Registration HTTP Status: ${response.status}`, safeBody);
+      }
+
       if (!response.ok) {
         const errorDetail =
           data.message ||

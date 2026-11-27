@@ -918,6 +918,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
+      // Safe diagnostic logging before guard check (no sensitive data: tokens, passwords, NID, base64 redacted)
+      console.log('[Diagnostic:AppContext:registerUser] Response inspection:', {
+        hasApiRes: Boolean(apiRes),
+        apiResType: typeof apiRes,
+        success: apiRes?.success,
+        message: apiRes?.message,
+        error: apiRes?.error,
+        dataKeys: apiRes?.data ? Object.keys(apiRes.data) : null,
+        hasUser: Boolean(apiRes?.data?.user),
+        hasToken: Boolean(apiRes?.data?.token),
+        userKeys: apiRes?.data?.user ? Object.keys(apiRes.data.user) : null,
+        tokenType: typeof apiRes?.data?.token,
+        guardConditionPasses: Boolean(apiRes && apiRes.success && apiRes.data?.user && apiRes.data.token),
+      });
+
       // Strict requirement: Ensure successful registration only occurs after backend confirms user creation and JWT
       if (!apiRes || !apiRes.success || !apiRes.data?.user || !apiRes.data.token) {
         const errorMsg =
