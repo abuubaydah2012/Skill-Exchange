@@ -63,7 +63,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // -----------------------------------------------------------------------------
 export const authApi = {
   register: (userData: any) =>
-    request<{ user: any; token: string }>('/auth/register', {
+    request<{ user: any; certificates?: any[]; token: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData),
     }),
@@ -73,6 +73,11 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+
+  checkEmail: (email: string) =>
+    request<{ available: boolean; message: string }>(
+      `/auth/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`
+    ),
 
   getMe: () => request<any>('/auth/me'),
 

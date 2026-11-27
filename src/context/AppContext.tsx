@@ -806,7 +806,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const data = dataOrName as RegisterUserData;
       const cleanEmail = (data.email || '').toLowerCase().trim();
 
-      // 1. Check duplicate email registration
+      // 1. Check duplicate email registration against backend / database first
+      try {
+        const checkRes = await authApi.checkEmail(cleanEmail);
+        if (checkRes.success && checkRes.data && !checkRes.data.available) {
+          return {
+            success: false,
+            error: checkRes.data.message || 'An account with this email address already exists. Please sign in instead.',
+          };
+        }
+      } catch {
+        // Fallback to local check if check-email endpoint has network issues
+      }
+
       if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
         return { success: false, error: 'An account with this email address already exists. Please sign in instead.' };
       }
@@ -852,12 +864,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, error: 'Password must be at least 6 characters.' };
       }
 
-      // 7. Secure cryptographic password hashing (never store plain text)
+      // 7. Secure cryptographic password hashing (never store plain text locally)
       const passwordHash = await hashPassword(data.password);
 
-      let effectiveUserId = 'usr-' + Math.random().toString(36).substring(2, 9);
+      // 8. Submit directly to backend MongoDB Atlas API
+      let apiRes;
       try {
-        const apiRes = await authApi.register({
+        apiRes = await authApi.register({
           name: data.name.trim(),
           email: cleanEmail,
           password: data.password,
@@ -866,12 +879,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           countryCode: data.countryCode,
           dateOfBirth: data.dateOfBirth,
           age: calculatedAge,
+          avatarUrl: data.avatarUrl || '',
           identityDocument: {
-            documentType: data.identityDocument.type,
+            type: data.identityDocument.type,
             documentNumber: data.identityDocument.documentNumber.trim(),
-            documentFileName: data.identityDocument.fileName,
-            documentFileSize: data.identityDocument.fileSize,
-            documentUrl: data.identityDocument.fileData,
+            fileName: data.identityDocument.fileName,
+            fileSize: data.identityDocument.fileSize,
+            fileData: data.identityDocument.fileData,
           },
           certificates: data.certificates?.map((c) => ({
             title: c.title || c.fileName.replace(/\.pdf$/i, ''),
@@ -883,51 +897,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             fileData: c.fileData,
           })),
         });
-        if (apiRes.success && apiRes.data?.user && apiRes.data.token) {
-          effectiveUserId = apiRes.data.user._id || apiRes.data.user.id || effectiveUserId;
-          localStorage.setItem(TOKEN_STORAGE_KEY, apiRes.data.token);
-        }
-      } catch {
-        // Backend offline; continue with local registration fallback
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err.message || 'Network error connecting to backend registration service.',
+        };
       }
 
+      // Strict requirement: Ensure successful registration only occurs after backend confirms user creation and JWT
+      if (!apiRes || !apiRes.success || !apiRes.data?.user || !apiRes.data.token) {
+        const errorMsg = apiRes?.message || 'Registration failed on backend server. Please verify your information.';
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      const backendUser = apiRes.data.user;
+      const backendCerts = apiRes.data.certificates || [];
+      const token = apiRes.data.token;
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+
+      const effectiveUserId = backendUser._id || backendUser.id;
+
       const colors = ['#0284c7', '#059669', '#d97706', '#9333ea', '#e11d48', '#2563eb', '#0891b2', '#7c3aed'];
-      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      const randomColor = backendUser.avatarBgColor || colors[Math.floor(Math.random() * colors.length)];
 
-      // 8. Convert uploaded certificates
-      const formattedCertificates: Certificate[] = (data.certificates || []).map((c) => ({
-        id: 'cert-' + Math.random().toString(36).substring(2, 9),
-        userId: effectiveUserId,
-        title: c.title || c.fileName.replace(/\.pdf$/i, ''),
-        issuingOrganization: c.issuingOrganization || 'Verified Educational/Professional Institution',
-        issueDate: new Date().toISOString().split('T')[0],
-        relatedSkill: c.title || 'General Credential',
-        fileName: c.fileName,
-        fileSize: c.fileSize,
-        fileData: c.fileData,
-        status: 'Pending',
-        submittedAt: new Date().toISOString(),
-      }));
+      // 9. Convert uploaded / saved certificates
+      const formattedCertificates: Certificate[] = backendCerts.length > 0
+        ? backendCerts.map((c: any) => ({
+            id: c._id || c.id || 'cert-' + Math.random().toString(36).substring(2, 9),
+            userId: effectiveUserId,
+            title: c.title || c.certificateName || 'Credential',
+            issuingOrganization: c.issuingOrganization || 'Verified Institution',
+            issueDate: c.issueDate || new Date().toISOString().split('T')[0],
+            expirationDate: c.expirationDate,
+            relatedSkill: c.relatedSkill || 'General Credential',
+            fileName: c.fileName || `${c.title}.pdf`,
+            fileSize: c.fileSize || 1024,
+            fileData: c.fileData || c.documentUrl,
+            status: c.status || 'Pending',
+            submittedAt: c.submittedAt || new Date().toISOString(),
+          }))
+        : (data.certificates || []).map((c) => ({
+            id: 'cert-' + Math.random().toString(36).substring(2, 9),
+            userId: effectiveUserId,
+            title: c.title || c.fileName.replace(/\.pdf$/i, ''),
+            issuingOrganization: c.issuingOrganization || 'Verified Educational/Professional Institution',
+            issueDate: new Date().toISOString().split('T')[0],
+            relatedSkill: c.title || 'General Credential',
+            fileName: c.fileName,
+            fileSize: c.fileSize,
+            fileData: c.fileData,
+            status: 'Pending',
+            submittedAt: new Date().toISOString(),
+          }));
 
-      // 9. Build registered user profile
+      // 10. Build registered user profile matching backend user record
       const newUser: UserProfile = {
         id: effectiveUserId,
-        email: cleanEmail,
-        name: data.name.trim(),
-        role: data.role,
-        avatarUrl: data.avatarUrl || '',
+        email: backendUser.email || cleanEmail,
+        name: backendUser.name || data.name.trim(),
+        role: backendUser.role || data.role,
+        avatarUrl: backendUser.avatarUrl || data.avatarUrl || '',
         avatarBgColor: randomColor,
-        headline: data.role === 'teacher' ? 'Certified Instructor' : 'Active Learner',
-        bio: `Hi, I am ${data.name.trim()}! Excited to join Skill Exchange to share knowledge and learn from peers.`,
-        location: 'Remote, Global',
-        languages: ['English'],
-        phoneNumber: `${data.countryCode} ${data.phoneNumber.trim()}`,
-        countryCode: data.countryCode,
-        dateOfBirth: data.dateOfBirth,
-        age: calculatedAge,
+        headline: backendUser.headline || (data.role === 'teacher' ? 'Certified Instructor' : 'Active Learner'),
+        bio: backendUser.bio || `Hi, I am ${data.name.trim()}! Excited to join Skill Exchange to share knowledge and learn from peers.`,
+        location: backendUser.location || 'Remote, Global',
+        languages: backendUser.languages || ['English'],
+        phoneNumber: backendUser.phoneNumber || `${data.countryCode} ${data.phoneNumber.trim()}`,
+        countryCode: backendUser.countryCode || data.countryCode,
+        dateOfBirth: backendUser.dateOfBirth || data.dateOfBirth,
+        age: backendUser.age || calculatedAge,
         passwordHash,
-        accountVerificationStatus: 'Pending Verification',
-        identityVerification: {
+        accountVerificationStatus: backendUser.accountVerificationStatus || 'Pending Verification',
+        identityVerification: backendUser.identityVerification || {
           status: 'Pending',
           documentType: data.identityDocument.type,
           documentNumber: data.identityDocument.documentNumber.trim(),
@@ -937,23 +981,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           submittedAt: new Date().toISOString(),
         },
         teachingSkills: [],
-        learningInterests: [],
+        learningInterests: backendUser.learningInterests || [],
         certificates: formattedCertificates,
         experience: [],
         education: [],
         portfolioLinks: [],
-        isProfileVerified: false,
-        isSuspended: false,
-        twoFactorEnabled: false,
-        profileVisibility: 'public',
-        rating: 5.0,
-        reviewCount: 0,
-        completedSessionsCount: 0,
-        totalEarnings: 0,
-        createdAt: new Date().toISOString(),
+        isProfileVerified: Boolean(backendUser.isProfileVerified),
+        isSuspended: Boolean(backendUser.isSuspended),
+        twoFactorEnabled: Boolean(backendUser.twoFactorEnabled),
+        profileVisibility: backendUser.profileVisibility || 'public',
+        rating: backendUser.rating || 5.0,
+        reviewCount: backendUser.reviewCount || 0,
+        completedSessionsCount: backendUser.completedSessionsCount || 0,
+        totalEarnings: backendUser.totalEarnings || 0,
+        createdAt: backendUser.createdAt || new Date().toISOString(),
       };
 
-      // 10. Persist user and set active session
+      // 11. Persist user and set active session
       setUsers((prev) => [newUser, ...prev]);
       setCurrentUser(newUser);
 

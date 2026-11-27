@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/User.js';
+import { Certificate } from '../models/Certificate.js';
 import { generateToken } from '../utils/jwt.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 
@@ -20,6 +21,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       location,
       languages,
       learningInterests,
+      certificates,
     } = req.body;
 
     // 1. Validate required fields
@@ -114,14 +116,23 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     // Prepare identity verification object if provided
     let identityVerificationData: any = undefined;
     let accountVerificationStatus = 'Unverified';
-    if (identityDocument && identityDocument.documentNumber) {
+    if (identityDocument && (identityDocument.documentNumber || identityDocument.documentFileName || identityDocument.fileName)) {
+      const docType =
+        identityDocument.type ||
+        identityDocument.documentType ||
+        (age && age < 18 ? 'Birth Certificate' : 'National ID (NID)');
+      const docNum = (identityDocument.documentNumber || '').trim();
+      const docFileName = identityDocument.fileName || identityDocument.documentFileName || 'document.pdf';
+      const docFileSize = identityDocument.fileSize || identityDocument.documentFileSize || 1024;
+      const docUrl = identityDocument.fileData || identityDocument.documentUrl || '';
+
       identityVerificationData = {
         status: 'Pending',
-        documentType: identityDocument.type || 'National ID (NID)',
-        documentNumber: identityDocument.documentNumber,
-        documentFileName: identityDocument.fileName || 'document.pdf',
-        documentFileSize: identityDocument.fileSize || 1024,
-        documentUrl: identityDocument.fileData || '',
+        documentType: docType,
+        documentNumber: docNum,
+        documentFileName: docFileName,
+        documentFileSize: docFileSize,
+        documentUrl: docUrl,
         submittedAt: new Date(),
       };
       accountVerificationStatus = 'Pending Verification';
@@ -148,6 +159,37 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       accountVerificationStatus,
     });
 
+    // Save submitted certificates to the Certificate collection linked to newUser._id
+    const createdCertificates = [];
+    if (Array.isArray(certificates) && certificates.length > 0) {
+      for (const cert of certificates) {
+        if (!cert || typeof cert !== 'object') continue;
+        const certTitle = (cert.title || cert.fileName?.replace(/\.pdf$/i, '') || 'Professional Certificate').trim();
+        const issuingOrg = (cert.issuingOrganization || 'Verified Educational/Professional Institution').trim();
+        const issueDate = cert.issueDate || new Date().toISOString().split('T')[0];
+        const relatedSkill = (cert.relatedSkill || certTitle || 'General Credential').trim();
+        const fileData = cert.fileData || cert.documentUrl || '';
+        const fileName = cert.fileName || `${certTitle}.pdf`;
+        const fileSize = typeof cert.fileSize === 'number' ? cert.fileSize : (fileData ? Math.round(fileData.length * 0.75) : 1024);
+
+        const newCert = await Certificate.create({
+          userId: newUser._id,
+          title: certTitle,
+          issuingOrganization: issuingOrg,
+          issueDate,
+          expirationDate: cert.expirationDate,
+          relatedSkill,
+          documentUrl: fileData,
+          fileData,
+          fileName,
+          fileSize,
+          status: 'Pending',
+          submittedAt: new Date(),
+        });
+        createdCertificates.push(newCert);
+      }
+    }
+
     // Generate JWT token
     const token = generateToken(newUser._id, newUser.email, newUser.role);
 
@@ -156,8 +198,28 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       message: 'Account registered successfully.',
       data: {
         user: newUser,
+        certificates: createdCertificates,
         token,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const checkEmailAvailability = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const email = req.query.email as string;
+    if (!email || typeof email !== 'string') {
+      res.status(400).json({ success: false, message: 'Email parameter is required.' });
+      return;
+    }
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: cleanEmail });
+    res.status(200).json({
+      success: true,
+      available: !existing,
+      message: existing ? 'An account with this email address already exists.' : 'Email is available.',
     });
   } catch (error) {
     next(error);

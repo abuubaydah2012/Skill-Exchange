@@ -6,6 +6,7 @@
 import React, { useState, useId } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { authApi } from '../../services/api';
 import { UserRole, IdentityDocumentType, UploadedCertificateDraft } from '../../types';
 import {
   COUNTRY_CODES,
@@ -311,6 +312,15 @@ export const RegisterForm: React.FC = () => {
       newErrors.email = 'Please enter a valid email address.';
     } else if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
       newErrors.email = 'An account with this email address already exists.';
+    } else {
+      try {
+        const check = await authApi.checkEmail(cleanEmail);
+        if (check.success && check.data && !check.data.available) {
+          newErrors.email = check.data.message || 'An account with this email address already exists.';
+        }
+      } catch {
+        // Fallback to submission-time backend check if check-email endpoint fails
+      }
     }
 
     // 3. Phone Number validation
@@ -398,8 +408,15 @@ export const RegisterForm: React.FC = () => {
       if (result.success) {
         navigate('/dashboard');
       } else {
-        setGlobalError(result.error || 'Registration failed. Please check your information.');
+        const errorMsg = result.error || 'Registration failed. Please check your information.';
+        setGlobalError(errorMsg);
+        if (errorMsg.toLowerCase().includes('email')) {
+          setErrors((prev) => ({ ...prev, email: errorMsg }));
+        } else if (errorMsg.toLowerCase().includes('phone')) {
+          setErrors((prev) => ({ ...prev, phoneNumber: errorMsg }));
+        }
         setIsSubmitting(false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch {
       setGlobalError('An unexpected error occurred during registration. Please try again.');
@@ -537,6 +554,22 @@ export const RegisterForm: React.FC = () => {
                           delete copy.email;
                           return copy;
                         });
+                      }
+                    }}
+                    onBlur={async () => {
+                      const clean = email.toLowerCase().trim();
+                      if (clean && validateEmail(clean)) {
+                        try {
+                          const check = await authApi.checkEmail(clean);
+                          if (check.success && check.data && !check.data.available) {
+                            setErrors((prev) => ({
+                              ...prev,
+                              email: check.data?.message || 'An account with this email address already exists.',
+                            }));
+                          }
+                        } catch {
+                          // Ignore blur check error if offline
+                        }
                       }
                     }}
                     placeholder="alex@example.com"

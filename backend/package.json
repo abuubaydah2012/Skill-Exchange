@@ -11,6 +11,7 @@
     "seed": "tsx src/scripts/seed.ts",
     "test:db": "tsx src/scripts/verify-connection.ts",
     "test:api": "tsx src/scripts/test-api-suite.ts",
+    "test:registration": "tsx src/scripts/test-registration-integration.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

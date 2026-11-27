@@ -20,7 +20,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || '*';
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
 // 1. CORS configuration
 app.use(
@@ -28,7 +28,8 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (CLIENT_URL === '*' || CLIENT_URL.split(',').map((u) => u.trim()).includes(origin)) {
+      const allowedOrigins = CLIENT_URL === '*' ? ['*'] : CLIENT_URL.split(',').map((u) => u.trim());
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(null, true); // Permissive in dev, can restrict in strict prod
@@ -39,9 +40,9 @@ app.use(
   })
 );
 
-// 2. Request parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// 2. Request parsing middleware: 35mb safely accommodates 10MB PDF + 5MB image + certificate base64 payloads
+app.use(express.json({ limit: '35mb' }));
+app.use(express.urlencoded({ extended: true, limit: '35mb' }));
 
 // 3. Global API rate limiting
 app.use('/api', apiLimiter);
