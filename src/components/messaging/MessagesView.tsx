@@ -28,6 +28,8 @@ export const MessagesView: React.FC = () => {
     messages,
     sendMessage,
     markConversationAsRead,
+    loadMessagesForConversation,
+    refreshConversations,
     blockUser,
   } = useApp();
   const [searchParams] = useSearchParams();
@@ -39,6 +41,11 @@ export const MessagesView: React.FC = () => {
   const [attachedFile, setAttachedFile] = useState<{ name: string; size: string } | null>(null);
   const [showOptionsDropdown, setShowOptionsDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Refresh conversations from MongoDB Atlas on mount
+  useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
 
   // If a ?user= parameter is passed, select or initialize conversation
   useEffect(() => {
@@ -67,12 +74,13 @@ export const MessagesView: React.FC = () => {
     }
   }, [activeConversationId]);
 
-  // Mark active conversation read
+  // Mark active conversation read & load messages from backend
   useEffect(() => {
     if (activeConversationId) {
+      loadMessagesForConversation(activeConversationId);
       markConversationAsRead(activeConversationId);
     }
-  }, [activeConversationId, markConversationAsRead]);
+  }, [activeConversationId, markConversationAsRead, loadMessagesForConversation]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -108,20 +116,22 @@ export const MessagesView: React.FC = () => {
     ? messages.filter((m) => m.conversationId === activeConversationId)
     : [];
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachedFile) return;
     if (!activeOtherUserId) return;
 
-    sendMessage(
-      activeOtherUserId,
-      inputText.trim(),
-      attachedFile?.name,
-      attachedFile?.size
-    );
-
+    const textToSend = inputText.trim();
+    const fileToSend = attachedFile;
     setInputText('');
     setAttachedFile(null);
+
+    await sendMessage(
+      activeOtherUserId,
+      textToSend,
+      fileToSend?.name,
+      fileToSend?.size
+    );
   };
 
   const handleSimulateAttachment = () => {

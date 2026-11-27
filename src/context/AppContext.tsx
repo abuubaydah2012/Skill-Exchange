@@ -45,8 +45,10 @@ import {
 } from '../data/seedData';
 import {
   authApi,
+  userApi,
   skillApi,
   appointmentApi,
+  messageApi,
   notificationApi,
   reviewApi,
   certificateApi,
@@ -139,8 +141,12 @@ interface AppContextType {
   completeClass: (classId: string) => void;
 
   // Messaging
-  sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => void;
+  sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => Promise<void> | void;
   markConversationAsRead: (conversationId: string) => void;
+  loadMessagesForConversation: (conversationId: string) => Promise<void>;
+  refreshConversations: () => Promise<void>;
+  refreshAppointments: () => Promise<void>;
+  syncBackendData: () => Promise<void>;
   blockUser: (targetUserId: string) => void;
 
   // Reviews
@@ -430,6 +436,107 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   }, [reviews]);
 
+  const syncBackendData = useCallback(async () => {
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (!token) return;
+
+    try {
+      const [aptsRes, convsRes, usersRes] = await Promise.all([
+        appointmentApi.getAppointments(),
+        messageApi.getConversations(),
+        userApi.getUsers(),
+      ]);
+
+      if (aptsRes.success && Array.isArray(aptsRes.data)) {
+        setAppointments(aptsRes.data);
+      }
+
+      if (convsRes.success && Array.isArray(convsRes.data)) {
+        setConversations(convsRes.data);
+      }
+
+      if (usersRes.success && Array.isArray(usersRes.data)) {
+        setUsers((prev) => {
+          const remoteUsers = (usersRes.data as any[]).map((u) => ({
+            id: u._id?.toString() || u.id,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            avatarUrl: u.avatarUrl || '',
+            avatarBgColor: u.avatarBgColor || '#0284c7',
+            headline: u.headline || '',
+            bio: u.bio || '',
+            location: u.location || '',
+            languages: u.languages || ['English'],
+            teachingSkills: u.teachingSkills || [],
+            learningInterests: u.learningInterests || [],
+            certificates: u.certificates || [],
+            experience: u.experience || [],
+            education: u.education || [],
+            portfolioLinks: u.portfolioLinks || [],
+            phoneNumber: u.phoneNumber,
+            countryCode: u.countryCode,
+            dateOfBirth: u.dateOfBirth,
+            age: u.age,
+            accountVerificationStatus: u.accountVerificationStatus || 'Unverified',
+            identityVerification: u.identityVerification,
+            isProfileVerified: Boolean(u.isProfileVerified),
+            isSuspended: Boolean(u.isSuspended),
+            twoFactorEnabled: Boolean(u.twoFactorEnabled),
+            profileVisibility: u.profileVisibility || 'public',
+            rating: u.rating || 5.0,
+            reviewCount: u.reviewCount || 0,
+            completedSessionsCount: u.completedSessionsCount || 0,
+            totalEarnings: u.totalEarnings || 0,
+            createdAt: u.createdAt || new Date().toISOString(),
+          }));
+
+          const remoteEmails = new Set(remoteUsers.map((u) => u.email.toLowerCase()));
+          const remainingLocal = prev.filter((u) => !remoteEmails.has(u.email.toLowerCase()));
+          return [...remoteUsers, ...remainingLocal];
+        });
+      }
+    } catch {
+      // Offline fallback
+    }
+  }, []);
+
+  const refreshAppointments = useCallback(async () => {
+    try {
+      const res = await appointmentApi.getAppointments();
+      if (res.success && Array.isArray(res.data)) {
+        setAppointments(res.data);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const refreshConversations = useCallback(async () => {
+    try {
+      const res = await messageApi.getConversations();
+      if (res.success && Array.isArray(res.data)) {
+        setConversations(res.data);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const loadMessagesForConversation = useCallback(async (conversationId: string) => {
+    try {
+      const res = await messageApi.getMessages(conversationId);
+      if (res.success && Array.isArray(res.data)) {
+        setMessages((prev) => {
+          const others = prev.filter((m) => m.conversationId !== conversationId);
+          return [...others, ...res.data];
+        });
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
   // Synchronize authenticated session from MongoDB Atlas API on mount
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -437,7 +544,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     authApi
       .getMe()
-      .then((res) => {
+      .then(async (res) => {
         if (res.success && res.data) {
           const u = res.data;
           const adaptedUser: UserProfile = {
@@ -480,12 +587,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? prev.map((x) => (x.email.toLowerCase() === u.email.toLowerCase() ? adaptedUser : x))
               : [adaptedUser, ...prev];
           });
+          await syncBackendData();
         }
       })
       .catch(() => {
         // Backend offline or token expired; local state remains active
       });
-  }, []);
+  }, [syncBackendData]);
 
   // Reset Demo Data
   const resetDemoData = useCallback(() => {
@@ -563,6 +671,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? prev.map((u) => (u.email.toLowerCase() === adaptedUser.email.toLowerCase() ? adaptedUser : u))
               : [adaptedUser, ...prev];
           });
+
+          await syncBackendData();
 
           addToast('success', 'Connected to MongoDB Atlas', `Welcome back, ${adaptedUser.name}!`);
           return { success: true };
@@ -664,18 +774,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const loginWithDemoRole = useCallback(
-    (role: UserRole) => {
-      let targetUser = users.find((u) => u.id === `usr-${role}`);
-      if (!targetUser) {
-        targetUser = users.find((u) => u.role === role);
-      }
-      if (targetUser) {
-        setCurrentUser(targetUser);
-        setOtpState(null);
-        addToast('success', `Switched to Demo ${role.toUpperCase()}`, `Logged in as ${targetUser.name}`);
+    async (role: UserRole) => {
+      const roleEmails: Record<UserRole, string> = {
+        learner: 'learner@skillexchange.io',
+        teacher: 'teacher@skillexchange.io',
+        admin: 'admin@skillexchange.io',
+      };
+      const email = roleEmails[role] || `${role}@skillexchange.io`;
+      const res = await login(email, 'password123');
+      if (!res.success) {
+        let targetUser = users.find((u) => u.id === `usr-${role}` || u.role === role);
+        if (targetUser) {
+          setCurrentUser(targetUser);
+          setOtpState(null);
+          addToast('success', `Switched to Demo ${role.toUpperCase()}`, `Logged in as ${targetUser.name}`);
+        }
       }
     },
-    [users, addToast]
+    [login, users, addToast]
   );
 
   const verifyOtp = useCallback(
@@ -755,6 +871,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     authApi.logout();
     setCurrentUser(null);
     setOtpState(null);
+    setAppointments([]);
+    setConversations([]);
+    setMessages([]);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
     addToast('info', 'Signed Out', 'You have been safely signed out.');
   }, [addToast]);
 
@@ -1266,21 +1386,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Appointments
   const createAppointment = useCallback(
     async (aptData: Omit<Appointment, 'id' | 'createdAt' | 'status'>): Promise<Appointment> => {
-      const newApt: Appointment = {
-        ...aptData,
-        id: 'apt-' + Math.random().toString(36).substring(2, 9),
-        status: 'Pending',
-        createdAt: new Date().toISOString(),
-        meetingId: 'meet-' + Math.random().toString(36).substring(2, 9),
-      };
-
-      setAppointments((prev) => [newApt, ...prev]);
-
-      // Sync with MongoDB backend if available
-      appointmentApi
-        .createAppointment({
+      try {
+        const apiRes = await appointmentApi.createAppointment({
           teacherId: aptData.teacherId,
           skillId: aptData.skillId,
+          skillName: aptData.skillName,
           requestedDate: aptData.requestedDate,
           startTime: aptData.startTime,
           durationMinutes: aptData.durationMinutes,
@@ -1289,81 +1399,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           hourlyPrice: aptData.hourlyPrice,
           totalCost: aptData.totalCost,
           message: aptData.message,
-        })
-        .catch(() => {});
+        });
 
-      // Notify teacher
-      const notif: PlatformNotification = {
-        id: 'notif-' + Math.random().toString(36).substring(2, 9),
-        userId: aptData.teacherId,
-        title: 'New Appointment Request',
-        message: `${aptData.learnerName} sent a ${aptData.isFreeSwap ? 'free skill swap' : 'paid lesson'} request for "${aptData.skillName}" on ${aptData.requestedDate}.`,
-        category: 'Appointments',
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        actionUrl: '/appointments',
-      };
-      setNotifications((prev) => [notif, ...prev]);
+        if (apiRes.success && apiRes.data) {
+          const createdApt: Appointment = apiRes.data;
+          setAppointments((prev) => [
+            createdApt,
+            ...prev.filter((a) => a.id !== createdApt.id),
+          ]);
 
-      addToast(
-        'success',
-        'Request Sent',
-        `Your request was sent to ${aptData.teacherName}. You will be notified once accepted.`
-      );
-      return newApt;
+          addToast(
+            'success',
+            'Request Sent',
+            `Your session request for "${createdApt.skillName}" was sent to ${createdApt.teacherName}.`
+          );
+          return createdApt;
+        } else {
+          const errorMsg = apiRes.error || apiRes.message || 'Failed to submit appointment request.';
+          addToast('error', 'Booking Failed', errorMsg);
+          throw new Error(errorMsg);
+        }
+      } catch (err: any) {
+        if (err.message && !err.message.includes('Network error') && !err.message.includes('Could not connect')) {
+          throw err;
+        }
+
+        // Local fallback if server unreachable
+        const fallbackApt: Appointment = {
+          ...aptData,
+          id: 'apt-' + Math.random().toString(36).substring(2, 9),
+          status: 'Pending',
+          createdAt: new Date().toISOString(),
+          meetingId: 'meet-' + Math.random().toString(36).substring(2, 9),
+        };
+        setAppointments((prev) => [fallbackApt, ...prev]);
+        addToast(
+          'warning',
+          'Saved Locally (Offline)',
+          `Your request was recorded in local session.`
+        );
+        return fallbackApt;
+      }
     },
     [addToast]
   );
 
   const updateAppointmentStatus = useCallback(
-    (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => {
-      // Sync with MongoDB backend if available
-      appointmentApi.updateStatus(appointmentId, status, cancellationReason).catch(() => {});
+    async (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => {
+      try {
+        const apiRes = await appointmentApi.updateStatus(appointmentId, status, cancellationReason);
+        if (apiRes.success && apiRes.data) {
+          const updatedApt: Appointment = apiRes.data;
+          setAppointments((prev) =>
+            prev.map((a) => (a.id === updatedApt.id || a.id === appointmentId ? updatedApt : a))
+          );
+          addToast('success', `Request ${status}`, `Appointment has been marked as ${status}.`);
+          return;
+        }
+      } catch {
+        // Fall through to local state update
+      }
 
       setAppointments((prev) =>
         prev.map((apt) => {
           if (apt.id !== appointmentId) return apt;
-          const updated = { ...apt, status, cancellationReason };
-
-          // Notify the other party
-          const notifyUserId = currentUser?.id === apt.teacherId ? apt.learnerId : apt.teacherId;
-          const otherName = currentUser?.id === apt.teacherId ? apt.teacherName : apt.learnerName;
-
-          const notif: PlatformNotification = {
-            id: 'notif-' + Math.random().toString(36).substring(2, 9),
-            userId: notifyUserId,
-            title: `Appointment ${status}`,
-            message:
-              status === 'Accepted'
-                ? `${otherName} accepted the session for ${apt.skillName} on ${apt.requestedDate}.`
-                : status === 'Cancelled'
-                ? `Appointment cancelled. Reason: ${cancellationReason || 'No reason provided'}.`
-                : `${otherName} updated the status of your appointment to ${status}.`,
-            category: 'Appointments',
-            isRead: false,
-            createdAt: new Date().toISOString(),
-            actionUrl: '/appointments',
-          };
-          setNotifications((prevNotifs) => [notif, ...prevNotifs]);
-
-          // If completed, increment completedSessionsCount for both
-          if (status === 'Completed') {
-            setUsers((prevUsers) =>
-              prevUsers.map((u) => {
-                if (u.id === apt.teacherId || u.id === apt.learnerId) {
-                  return { ...u, completedSessionsCount: u.completedSessionsCount + 1 };
-                }
-                return u;
-              })
-            );
-          }
-
-          return updated;
+          return { ...apt, status, cancellationReason };
         })
       );
-      addToast('info', 'Status Updated', `Appointment marked as ${status}.`);
+      addToast('info', `Status Updated`, `Appointment marked as ${status}.`);
     },
-    [currentUser, addToast]
+    [addToast]
   );
 
   // Classes
@@ -1519,8 +1624,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Messaging
   const sendMessage = useCallback(
-    (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => {
+    async (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => {
       if (!currentUser) return;
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const apiRes = await messageApi.sendMessage({
+            receiverId,
+            text,
+            attachmentName,
+            attachmentSize,
+          });
+
+          if (apiRes.success && apiRes.data?.message && apiRes.data?.conversation) {
+            const { message: backendMsg, conversation: backendConv } = apiRes.data;
+
+            setMessages((prev) => {
+              const exists = prev.some((m) => m.id === backendMsg.id);
+              return exists ? prev.map((m) => (m.id === backendMsg.id ? backendMsg : m)) : [...prev, backendMsg];
+            });
+
+            setConversations((prev) => {
+              const exists = prev.some((c) => c.id === backendConv.id);
+              return exists
+                ? prev.map((c) => (c.id === backendConv.id ? backendConv : c))
+                : [backendConv, ...prev];
+            });
+            return;
+          }
+        } catch {
+          // Backend offline fallback
+        }
+      }
+
       const participants = [currentUser.id, receiverId].sort();
       let conv = conversations.find(
         (c) =>
@@ -1597,6 +1734,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const markConversationAsRead = useCallback(
     (conversationId: string) => {
       if (!currentUser) return;
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        messageApi.markAsRead(conversationId).catch(() => {});
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.conversationId === conversationId && m.receiverId === currentUser.id
@@ -2064,6 +2207,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         sendMessage,
         markConversationAsRead,
+        loadMessagesForConversation,
+        refreshConversations,
+        refreshAppointments,
+        syncBackendData,
         blockUser,
 
         submitReview,

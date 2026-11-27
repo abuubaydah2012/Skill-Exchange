@@ -3,7 +3,9 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 export interface IAppointment extends Document {
   _id: Types.ObjectId;
   learnerId: Types.ObjectId; // Student ID
+  learnerName?: string;
   teacherId: Types.ObjectId; // Teacher ID
+  teacherName?: string;
   skillId: Types.ObjectId;   // Skill ID
   skillName: string;
   requestedDate: string;     // YYYY-MM-DD
@@ -30,11 +32,19 @@ const AppointmentSchema = new Schema<IAppointment>(
       required: [true, 'Student/Learner ID is required'],
       index: true,
     },
+    learnerName: {
+      type: String,
+      default: '',
+    },
     teacherId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'Teacher ID is required'],
       index: true,
+    },
+    teacherName: {
+      type: String,
+      default: '',
     },
     skillId: {
       type: Schema.Types.ObjectId,

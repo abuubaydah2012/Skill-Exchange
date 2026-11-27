@@ -300,7 +300,13 @@ export const appointmentApi = {
       body: JSON.stringify(appointmentData),
     }),
 
-  getAppointments: () => request<any[]>('/appointments'),
+  getAppointments: (params?: { status?: string; role?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.role) query.set('role', params.role);
+    const qs = query.toString();
+    return request<any[]>(`/appointments${qs ? `?${qs}` : ''}`);
+  },
 
   getAppointmentById: (id: string) => request<any>(`/appointments/${id}`),
 
@@ -317,6 +323,26 @@ export const appointmentApi = {
     }),
 
   getAppointmentsByUser: (userId: string) => request<any[]>(`/appointments/user/${userId}`),
+};
+
+// -----------------------------------------------------------------------------
+// 5. Messaging API
+// -----------------------------------------------------------------------------
+export const messageApi = {
+  getConversations: () => request<any[]>('/messages/conversations'),
+
+  getMessages: (conversationId: string) => request<any[]>(`/messages/conversations/${conversationId}`),
+
+  sendMessage: (payload: { receiverId: string; text?: string; attachmentName?: string; attachmentSize?: string }) =>
+    request<{ message: any; conversation: any }>('/messages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  markAsRead: (conversationId: string) =>
+    request(`/messages/conversations/${conversationId}/read`, {
+      method: 'PATCH',
+    }),
 };
 
 // -----------------------------------------------------------------------------

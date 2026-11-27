@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatCard } from './StatCard';
@@ -33,8 +33,13 @@ export const TeacherDashboard: React.FC = () => {
     classes,
     reviews,
     updateAppointmentStatus,
+    refreshAppointments,
   } = useApp();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    refreshAppointments();
+  }, [refreshAppointments]);
 
   if (!currentUser) return null;
 

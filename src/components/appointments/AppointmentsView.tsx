@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Appointment, AppointmentStatus } from '../../types';
 import { Badge } from '../common/Badge';
@@ -22,12 +22,16 @@ import {
 } from 'lucide-react';
 
 export const AppointmentsView: React.FC = () => {
-  const { currentUser, appointments, updateAppointmentStatus } = useApp();
+  const { currentUser, appointments, updateAppointmentStatus, refreshAppointments } = useApp();
 
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [statusFilter, setStatusFilter] = useState<'all' | AppointmentStatus>('all');
   const [cancellingAppointmentId, setCancellingAppointmentId] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState<string>('');
+
+  useEffect(() => {
+    refreshAppointments();
+  }, [refreshAppointments]);
 
   if (!currentUser) return null;
 

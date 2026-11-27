@@ -28,11 +28,34 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction):
     }
 
     const users = await User.find(filter).sort({ rating: -1, createdAt: -1 });
+    const userIds = users.map((u) => u._id);
+    const skills = await Skill.find({ userId: { $in: userIds } });
+
+    const adaptedUsers = users.map((u) => {
+      const uObj: any = u.toJSON();
+      uObj.id = u._id.toString();
+      uObj.teachingSkills = skills
+        .filter((s) => s.userId.toString() === u._id.toString())
+        .map((s) => ({
+          id: s._id.toString(),
+          name: s.name,
+          category: s.category,
+          description: s.description,
+          proficiency: s.proficiency,
+          yearsExperience: s.yearsExperience || 1,
+          freeSwapAvailable: Boolean(s.freeSwapAvailable),
+          paidLessonAvailable: Boolean(s.paidLessonAvailable),
+          hourlyPrice: s.hourlyPrice || 0,
+          availabilitySchedule: s.availabilitySchedule || 'Flexible schedule',
+          verificationStatus: s.verificationStatus || 'Verified',
+        }));
+      return uObj;
+    });
 
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users,
+      count: adaptedUsers.length,
+      data: adaptedUsers,
     });
   } catch (error) {
     next(error);

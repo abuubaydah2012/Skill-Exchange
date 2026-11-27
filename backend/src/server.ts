@@ -14,6 +14,9 @@ import appointmentRoutes from './routes/appointmentRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import certificateRoutes from './routes/certificateRoutes.js';
+import messageRoutes from './routes/messageRoutes.js';
+import { User } from './models/User.js';
+import { Skill } from './models/Skill.js';
 
 // Load environment variables
 dotenv.config();
@@ -87,6 +90,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/skills', skillRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/certificates', certificateRoutes);
@@ -95,11 +99,103 @@ app.use('/api/certificates', certificateRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+export const ensureDefaultDemoAccounts = async () => {
+  try {
+    let learner = await User.findOne({ email: 'learner@skillexchange.io' });
+    if (!learner) {
+      learner = await User.create({
+        name: 'Elena Rostova',
+        email: 'learner@skillexchange.io',
+        password: 'password123',
+        role: 'learner',
+        avatarBgColor: '#0284c7',
+        headline: 'Junior Product Designer & Language Enthusiast',
+        bio: 'Passionate UX apprentice eager to level up my front-end React skills. In exchange, I teach conversational Russian and wireframing.',
+        location: 'Berlin, Germany',
+        languages: ['English', 'Russian', 'German'],
+        learningInterests: ['React & TypeScript', 'Node.js Backend', 'Acoustic Guitar'],
+        phoneNumber: '+49 152 984102',
+        isProfileVerified: true,
+        accountVerificationStatus: 'Verified',
+        rating: 4.9,
+        reviewCount: 14,
+      });
+      console.log('[Seed] Ensured default demo learner: Elena Rostova (learner@skillexchange.io)');
+    }
+
+    let teacher = await User.findOne({ email: 'teacher@skillexchange.io' });
+    if (!teacher) {
+      teacher = await User.create({
+        name: 'Marcus Vance',
+        email: 'teacher@skillexchange.io',
+        password: 'password123',
+        role: 'teacher',
+        avatarBgColor: '#059669',
+        headline: 'Senior Full-Stack Architect & Engineering Mentor',
+        bio: '10+ years architecting web applications with React, TypeScript, and distributed Node systems.',
+        location: 'Austin, TX, USA',
+        languages: ['English', 'Spanish'],
+        learningInterests: ['Conversational Russian', 'Jazz Guitar'],
+        phoneNumber: '+1 512 809 3421',
+        isProfileVerified: true,
+        accountVerificationStatus: 'Verified',
+        rating: 4.95,
+        reviewCount: 38,
+        totalEarnings: 4250,
+      });
+      console.log('[Seed] Ensured default demo teacher: Marcus Vance (teacher@skillexchange.io)');
+    }
+
+    let admin = await User.findOne({ email: 'admin@skillexchange.io' });
+    if (!admin) {
+      admin = await User.create({
+        name: 'Sarah Jenkins',
+        email: 'admin@skillexchange.io',
+        password: 'password123',
+        role: 'admin',
+        avatarBgColor: '#7c3aed',
+        headline: 'Platform Moderator & Community Quality Lead',
+        bio: 'Overseeing member verifications, dispute resolutions, and trust & safety.',
+        location: 'London, UK',
+        languages: ['English', 'French'],
+        isProfileVerified: true,
+        accountVerificationStatus: 'Verified',
+      });
+      console.log('[Seed] Ensured default demo admin: Sarah Jenkins (admin@skillexchange.io)');
+    }
+
+    // Ensure teacher skills exist
+    if (teacher) {
+      const existingTeacherSkill = await Skill.findOne({ userId: teacher._id });
+      if (!existingTeacherSkill) {
+        await Skill.create({
+          userId: teacher._id,
+          name: 'React & TypeScript Architecture',
+          category: 'Development',
+          description: 'Component architecture, custom hooks, state machines, and type safety.',
+          proficiency: 'Expert',
+          skillType: 'Teaching',
+          yearsExperience: 9,
+          freeSwapAvailable: true,
+          paidLessonAvailable: true,
+          hourlyPrice: 65,
+          availabilitySchedule: 'Mon-Thu 17:00 - 21:00 CST',
+          verificationStatus: 'Verified',
+        });
+        console.log('[Seed] Ensured default skill for Marcus Vance: React & TypeScript Architecture');
+      }
+    }
+  } catch (err) {
+    console.warn('[Seed Warning] Could not ensure default demo accounts:', err);
+  }
+};
+
 // 7. Establish database connection and start HTTP server
 const startServer = async () => {
   try {
     if (process.env.MONGODB_URI) {
       await connectDB();
+      await ensureDefaultDemoAccounts();
     } else {
       console.warn('[Server Warning] MONGODB_URI is not set. Database operations will fail until configured.');
     }
