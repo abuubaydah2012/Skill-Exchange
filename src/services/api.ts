@@ -4,8 +4,9 @@
  */
 
 // Base API URL: uses Vite environment variable VITE_API_URL if configured,
-// otherwise defaults to local backend port 5000.
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// otherwise defaults to local backend port 5000. Normalizes trailing slashes and ensures /api path.
+const rawApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
+export const API_BASE_URL = rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`;
 export const TOKEN_STORAGE_KEY = 'SKILL_EXCHANGE_AUTH_TOKEN';
 
 export interface ApiResponse<T = unknown> {
@@ -19,13 +20,14 @@ export interface ApiResponse<T = unknown> {
 
 /**
  * Helper to perform typed fetch requests with automatic JWT authorization header injection.
+ * Robust against localhost vs 127.0.0.1 loopback resolution differences and Vite dev proxy.
  */
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
   const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
@@ -33,29 +35,57 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+  // Determine candidate URLs: configured API_BASE_URL, alternate loopback, and relative proxy (/api)
+  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  const candidateUrls: string[] = [primaryUrl];
 
-    const data: ApiResponse<T> = await response.json();
-
-    if (!response.ok) {
-      return {
-        success: false,
-        message: data.message || `Request failed with status ${response.status}`,
-      };
-    }
-
-    return data;
-  } catch (error: any) {
-    console.warn(`[API] Network error communicating with ${url}:`, error.message);
-    return {
-      success: false,
-      message: error.message || 'Network error connecting to backend service.',
-    };
+  if (primaryUrl.includes('localhost:5000')) {
+    candidateUrls.push(primaryUrl.replace('localhost:5000', '127.0.0.1:5000'));
+  } else if (primaryUrl.includes('127.0.0.1:5000')) {
+    candidateUrls.push(primaryUrl.replace('127.0.0.1:5000', 'localhost:5000'));
   }
+  const relativeProxyUrl = `/api${endpoint}`;
+  if (!candidateUrls.includes(relativeProxyUrl)) {
+    candidateUrls.push(relativeProxyUrl);
+  }
+
+  let lastError: any = null;
+
+  for (const targetUrl of candidateUrls) {
+    try {
+      const response = await fetch(targetUrl, {
+        ...options,
+        headers,
+      });
+
+      const text = await response.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { message: text || `Request completed with status ${response.status}` };
+      }
+
+      if (!response.ok) {
+        return {
+          success: false,
+          message: data.message || `Request failed with status ${response.status}`,
+        };
+      }
+
+      return data as ApiResponse<T>;
+    } catch (err: any) {
+      lastError = err;
+      // Continue to next candidate URL (e.g. 127.0.0.1 or /api) if network/CORS error occurs on this address
+      continue;
+    }
+  }
+
+  console.warn(`[API] Network error communicating with ${primaryUrl}:`, lastError?.message);
+  return {
+    success: false,
+    message: lastError?.message || 'Network error connecting to backend service.',
+  };
 }
 
 // -----------------------------------------------------------------------------
