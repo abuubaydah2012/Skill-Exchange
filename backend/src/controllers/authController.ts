@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/User.js';
+import { Skill } from '../models/Skill.js';
 import { Certificate } from '../models/Certificate.js';
 import { generateToken } from '../utils/jwt.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
@@ -296,8 +297,39 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 
     const token = generateToken(user._id, user.email, user.role);
 
-    // Remove password before returning
-    const userJson = user.toJSON();
+    // Remove password and attach populated data
+    const userJson: any = user.toJSON();
+    userJson.id = user._id.toString();
+
+    const skills = await Skill.find({ userId: user._id });
+    userJson.teachingSkills = skills.map((s) => ({
+      id: s._id.toString(),
+      name: s.name,
+      category: s.category,
+      description: s.description,
+      proficiency: s.proficiency,
+      yearsExperience: s.yearsExperience || 1,
+      freeSwapAvailable: Boolean(s.freeSwapAvailable),
+      paidLessonAvailable: Boolean(s.paidLessonAvailable),
+      hourlyPrice: s.hourlyPrice || 0,
+      availabilitySchedule: s.availabilitySchedule || 'Flexible schedule',
+      verificationStatus: s.verificationStatus || 'Verified',
+    }));
+
+    const certs = await Certificate.find({ userId: user._id });
+    userJson.certificates = certs.map((c) => ({
+      id: c._id.toString(),
+      title: c.title,
+      issuingOrganization: c.issuingOrganization,
+      issueDate: c.issueDate,
+      expirationDate: c.expirationDate,
+      credentialUrl: c.documentUrl,
+      documentUrl: c.documentUrl,
+      fileName: c.fileName,
+      fileSize: c.fileSize,
+      status: c.status,
+      submittedAt: c.submittedAt,
+    }));
 
     res.status(200).json({
       success: true,
@@ -319,9 +351,48 @@ export const getMe = async (req: AuthenticatedRequest, res: Response, next: Next
       return;
     }
 
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      res.status(401).json({ success: false, message: 'User account not found.' });
+      return;
+    }
+
+    const userJson: any = user.toJSON();
+    userJson.id = user._id.toString();
+
+    const skills = await Skill.find({ userId: user._id });
+    userJson.teachingSkills = skills.map((s) => ({
+      id: s._id.toString(),
+      name: s.name,
+      category: s.category,
+      description: s.description,
+      proficiency: s.proficiency,
+      yearsExperience: s.yearsExperience || 1,
+      freeSwapAvailable: Boolean(s.freeSwapAvailable),
+      paidLessonAvailable: Boolean(s.paidLessonAvailable),
+      hourlyPrice: s.hourlyPrice || 0,
+      availabilitySchedule: s.availabilitySchedule || 'Flexible schedule',
+      verificationStatus: s.verificationStatus || 'Verified',
+    }));
+
+    const certs = await Certificate.find({ userId: user._id });
+    userJson.certificates = certs.map((c) => ({
+      id: c._id.toString(),
+      title: c.title,
+      issuingOrganization: c.issuingOrganization,
+      issueDate: c.issueDate,
+      expirationDate: c.expirationDate,
+      credentialUrl: c.documentUrl,
+      documentUrl: c.documentUrl,
+      fileName: c.fileName,
+      fileSize: c.fileSize,
+      status: c.status,
+      submittedAt: c.submittedAt,
+    }));
+
     res.status(200).json({
       success: true,
-      data: req.user,
+      data: userJson,
     });
   } catch (error) {
     next(error);

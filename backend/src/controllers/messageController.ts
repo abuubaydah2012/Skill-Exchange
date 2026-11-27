@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Message } from '../models/Message.js';
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
+import { Skill } from '../models/Skill.js';
 import { Notification } from '../models/Notification.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 
@@ -267,6 +268,93 @@ export const markConversationAsRead = async (req: AuthenticatedRequest, res: Res
     res.status(200).json({
       success: true,
       message: 'Conversation marked as read.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const searchTeachers = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
+      return;
+    }
+
+    const { search } = req.query;
+    const currentUserId = req.user._id;
+
+    // Filter: only teachers, not suspended, exclude currently authenticated user
+    const userFilter: any = {
+      role: 'teacher',
+      isSuspended: { $ne: true },
+      _id: { $ne: currentUserId },
+    };
+
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const term = search.trim();
+
+      // Find skills matching term
+      const matchingSkills = await Skill.find({
+        $or: [
+          { name: { $regex: term, $options: 'i' } },
+          { title: { $regex: term, $options: 'i' } },
+          { category: { $regex: term, $options: 'i' } },
+          { description: { $regex: term, $options: 'i' } },
+        ],
+      }).select('userId');
+
+      const userIdsFromSkills = matchingSkills.map((s) => s.userId);
+
+      userFilter.$or = [
+        { name: { $regex: term, $options: 'i' } },
+        { headline: { $regex: term, $options: 'i' } },
+        { bio: { $regex: term, $options: 'i' } },
+        { location: { $regex: term, $options: 'i' } },
+        { languages: { $regex: term, $options: 'i' } },
+        { _id: { $in: userIdsFromSkills } },
+      ];
+    }
+
+    const teachers = await User.find(userFilter)
+      .select('name email role avatarUrl avatarBgColor headline bio location languages rating reviewCount accountVerificationStatus isProfileVerified createdAt')
+      .sort({ rating: -1, reviewCount: -1, createdAt: -1 })
+      .limit(30);
+
+    const teacherIds = teachers.map((t) => t._id);
+    const skills = await Skill.find({ userId: { $in: teacherIds } });
+
+    const adapted = teachers.map((t) => {
+      const tSkills = skills.filter((s) => s.userId.toString() === t._id.toString());
+      return {
+        id: t._id.toString(),
+        name: t.name,
+        email: t.email,
+        role: t.role,
+        avatarUrl: t.avatarUrl || '',
+        avatarBgColor: t.avatarBgColor || '#059669',
+        headline: t.headline || '',
+        bio: t.bio || '',
+        location: t.location || '',
+        languages: t.languages || ['English'],
+        rating: t.rating || 5.0,
+        reviewCount: t.reviewCount || 0,
+        isProfileVerified: Boolean(t.isProfileVerified),
+        accountVerificationStatus: t.accountVerificationStatus || 'Verified',
+        teachingSkills: tSkills.map((s) => ({
+          id: s._id.toString(),
+          name: s.name,
+          category: s.category,
+          hourlyPrice: s.hourlyPrice || 0,
+          proficiency: s.proficiency || 'Expert',
+        })),
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: adapted.length,
+      data: adapted,
     });
   } catch (error) {
     next(error);

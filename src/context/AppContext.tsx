@@ -75,6 +75,7 @@ export interface OtpState {
 
 interface AppContextType {
   currentUser: UserProfile | null;
+  isAuthLoading: boolean;
   users: UserProfile[];
   appointments: Appointment[];
   classes: ClassSession[];
@@ -141,7 +142,7 @@ interface AppContextType {
   completeClass: (classId: string) => void;
 
   // Messaging
-  sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => Promise<void> | void;
+  sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => Promise<{ message?: any; conversation?: any } | void>;
   markConversationAsRead: (conversationId: string) => void;
   loadMessagesForConversation: (conversationId: string) => Promise<void>;
   refreshConversations: () => Promise<void>;
@@ -272,17 +273,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      return Boolean(token);
+    } catch {
+      return false;
+    }
+  });
+
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
-      const storedUser = localStorage.getItem(STORAGE_KEY + '_current_user');
-      if (storedUser) {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      const storedUser = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY + '_current_user') : null;
+      if (token && storedUser) {
         const parsed = JSON.parse(storedUser);
-        const exists = users.find((u) => u.id === parsed.id);
-        return exists || users[0];
+        if (parsed && typeof parsed === 'object' && (parsed.id || parsed._id) && parsed.email) {
+          return {
+            ...parsed,
+            id: parsed.id || parsed._id,
+          };
+        }
       }
-      return users[0]; // default to Elena (Learner)
+      return null;
     } catch {
-      return INITIAL_USERS[0];
+      return null;
     }
   });
 
@@ -390,7 +405,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY + '_users', JSON.stringify(users));
-      localStorage.setItem(STORAGE_KEY + '_current_user', JSON.stringify(currentUser));
+      if (currentUser) {
+        localStorage.setItem(STORAGE_KEY + '_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem(STORAGE_KEY + '_current_user');
+      }
       localStorage.setItem(STORAGE_KEY + '_appointments', JSON.stringify(appointments));
       localStorage.setItem(STORAGE_KEY + '_classes', JSON.stringify(classes));
       localStorage.setItem(STORAGE_KEY + '_conversations', JSON.stringify(conversations));
@@ -539,12 +558,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Synchronize authenticated session from MongoDB Atlas API on mount
   useEffect(() => {
+    let isCancelled = false;
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (!token) return;
+    if (!token) {
+      setCurrentUser(null);
+      setIsAuthLoading(false);
+      return;
+    }
 
     authApi
       .getMe()
       .then(async (res) => {
+        if (isCancelled) return;
+
         if (res.success && res.data) {
           const u = res.data;
           const adaptedUser: UserProfile = {
@@ -553,7 +579,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             name: u.name,
             role: u.role,
             avatarUrl: u.avatarUrl || '',
-            avatarBgColor: u.avatarBgColor || '#0284c7',
+            avatarBgColor: u.avatarBgColor || (u.role === 'teacher' ? '#059669' : '#0284c7'),
             headline: u.headline || '',
             bio: u.bio || '',
             location: u.location || '',
@@ -581,6 +607,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             createdAt: u.createdAt || new Date().toISOString(),
           };
           setCurrentUser(adaptedUser);
+          localStorage.setItem(STORAGE_KEY + '_current_user', JSON.stringify(adaptedUser));
+
           setUsers((prev) => {
             const exists = prev.some((x) => x.email.toLowerCase() === u.email.toLowerCase());
             return exists
@@ -588,11 +616,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               : [adaptedUser, ...prev];
           });
           await syncBackendData();
+        } else if (res.status === 401 || !res.success) {
+          // Token is rejected or expired on backend
+          console.warn('[Auth] Stored session token is invalid or expired. Clearing credentials.');
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          localStorage.removeItem(STORAGE_KEY + '_current_user');
+          setCurrentUser(null);
         }
       })
-      .catch(() => {
-        // Backend offline or token expired; local state remains active
+      .catch((err) => {
+        console.warn('[Auth] Session restoration error:', err);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsAuthLoading(false);
+        }
       });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [syncBackendData]);
 
   // Reset Demo Data
@@ -665,6 +708,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
 
           setCurrentUser(adaptedUser);
+          localStorage.setItem(STORAGE_KEY + '_current_user', JSON.stringify(adaptedUser));
+          setIsAuthLoading(false);
           setUsers((prev) => {
             const exists = prev.some((u) => u.email.toLowerCase() === adaptedUser.email.toLowerCase());
             return exists
@@ -676,6 +721,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           addToast('success', 'Connected to MongoDB Atlas', `Welcome back, ${adaptedUser.name}!`);
           return { success: true };
+        } else if (apiRes.status === 401 || (apiRes.message && !apiRes.message.includes('Could not connect') && !apiRes.message.includes('Network error'))) {
+          // Explicit credential error from backend - do not fall back to demo account
+          return {
+            success: false,
+            error: apiRes.message || apiRes.error || 'Invalid email, phone number, or password.',
+          };
         }
       } catch (err) {
         // Backend unavailable; continue with local demo authentication fallback below
@@ -875,6 +926,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setConversations([]);
     setMessages([]);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY + '_current_user');
+    setIsAuthLoading(false);
     addToast('info', 'Signed Out', 'You have been safely signed out.');
   }, [addToast]);
 
@@ -1651,7 +1704,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ? prev.map((c) => (c.id === backendConv.id ? backendConv : c))
                 : [backendConv, ...prev];
             });
-            return;
+            return { message: backendMsg, conversation: backendConv };
           }
         } catch {
           // Backend offline fallback
@@ -2155,6 +2208,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         currentUser,
+        isAuthLoading,
         users,
         appointments,
         classes,

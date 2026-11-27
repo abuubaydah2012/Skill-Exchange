@@ -20,9 +20,18 @@ export const AppShell: React.FC<AppShellProps> = ({
   requireAuth = true,
   requiredRole,
 }) => {
-  const { currentUser } = useApp();
+  const { currentUser, isAuthLoading } = useApp();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const location = useLocation();
+
+  if (requireAuth && isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-10 h-10 border-4 border-sky-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">Verifying session...</p>
+      </div>
+    );
+  }
 
   if (requireAuth && !currentUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;

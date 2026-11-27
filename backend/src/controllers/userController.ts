@@ -8,7 +8,7 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 export const getUsers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { role, search, location } = req.query;
-    const filter: Record<string, unknown> = { isSuspended: false };
+    const filter: Record<string, unknown> = { isSuspended: { $ne: true } };
 
     if (role && (role === 'learner' || role === 'teacher' || role === 'admin')) {
       filter.role = role;
@@ -18,12 +18,24 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction):
       filter.location = { $regex: location, $options: 'i' };
     }
 
-    if (search && typeof search === 'string') {
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const term = search.trim();
+      const matchingSkills = await Skill.find({
+        $or: [
+          { name: { $regex: term, $options: 'i' } },
+          { title: { $regex: term, $options: 'i' } },
+          { category: { $regex: term, $options: 'i' } },
+          { description: { $regex: term, $options: 'i' } },
+        ],
+      }).select('userId');
+      const userIdsFromSkills = matchingSkills.map((s) => s.userId);
+
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { headline: { $regex: search, $options: 'i' } },
-        { bio: { $regex: search, $options: 'i' } },
-        { learningInterests: { $regex: search, $options: 'i' } },
+        { name: { $regex: term, $options: 'i' } },
+        { headline: { $regex: term, $options: 'i' } },
+        { bio: { $regex: term, $options: 'i' } },
+        { learningInterests: { $regex: term, $options: 'i' } },
+        { _id: { $in: userIdsFromSkills } },
       ];
     }
 

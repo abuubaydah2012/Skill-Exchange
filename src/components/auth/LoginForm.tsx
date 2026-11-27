@@ -11,8 +11,15 @@ import { KeyRound, ShieldAlert, ArrowRight, UserCheck, Sparkles, Check, Sun, Moo
 import { UserRole } from '../../types';
 
 export const LoginForm: React.FC = () => {
-  const { login, loginWithDemoRole, isAccountLocked, currentUser, theme, toggleTheme } = useApp();
+  const { login, loginWithDemoRole, isAccountLocked, currentUser, isAuthLoading, theme, toggleTheme } = useApp();
   const navigate = useNavigate();
+
+  // Redirect to dashboard if session already active
+  useEffect(() => {
+    if (currentUser && !isAuthLoading) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [currentUser, isAuthLoading, navigate]);
 
   // Controlled login state initialized strictly to empty strings
   const [identifier, setIdentifier] = useState('');

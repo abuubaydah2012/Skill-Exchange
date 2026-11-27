@@ -23,6 +23,7 @@ export interface ApiResponse<T = unknown> {
   count?: number;
   unreadCount?: number;
   error?: string;
+  status?: number;
 }
 
 /**
@@ -152,6 +153,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         console.warn(`[API] Response error on ${targetUrl}:`, { status: response.status, errorDetail, data });
         return {
           success: false,
+          status: response.status,
           message: errorDetail,
           error: errorDetail,
           data: data.data || undefined,
@@ -167,6 +169,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         console.warn(`[API] Logical failure on ${targetUrl}:`, errorDetail);
         return {
           success: false,
+          status: response.status,
           message: errorDetail,
           error: errorDetail,
           data: data.data || undefined,
@@ -174,7 +177,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       }
 
       console.log(`[API] Success ${targetUrl} (HTTP ${response.status})`);
-      return data as ApiResponse<T>;
+      return {
+        ...(data as any),
+        status: response.status,
+      } as ApiResponse<T>;
     } catch (err: any) {
       lastError = err;
       console.warn(`[API] Attempt on ${targetUrl} failed:`, err?.message);
@@ -332,6 +338,11 @@ export const messageApi = {
   getConversations: () => request<any[]>('/messages/conversations'),
 
   getMessages: (conversationId: string) => request<any[]>(`/messages/conversations/${conversationId}`),
+
+  searchTeachers: (searchQuery?: string) => {
+    const qs = searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : '';
+    return request<any[]>(`/messages/teachers${qs}`);
+  },
 
   sendMessage: (payload: { receiverId: string; text?: string; attachmentName?: string; attachmentSize?: string }) =>
     request<{ message: any; conversation: any }>('/messages', {
