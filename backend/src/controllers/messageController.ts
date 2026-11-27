@@ -6,6 +6,7 @@ import { User } from '../models/User.js';
 import { Skill } from '../models/Skill.js';
 import { Notification } from '../models/Notification.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
+import { emitToUser } from '../socket.js';
 
 export const getConversations = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -219,6 +220,15 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
       unreadCountForUser: unreadMap,
     };
 
+    // Emit real-time events via Socket.IO
+    // 1. Deliver message in real time to the receiver's private room
+    emitToUser(receiver._id.toString(), 'message:received', adaptedMessage);
+    // 2. Update conversation preview and unread counters for both receiver and sender
+    emitToUser(receiver._id.toString(), 'conversation:updated', adaptedConversation);
+    emitToUser(req.user._id.toString(), 'conversation:updated', adaptedConversation);
+    // 3. Sync sender's other open tabs or sessions
+    emitToUser(req.user._id.toString(), 'message:received', adaptedMessage);
+
     res.status(201).json({
       success: true,
       message: 'Message sent successfully.',
@@ -264,6 +274,15 @@ export const markConversationAsRead = async (req: AuthenticatedRequest, res: Res
       conv.unreadCountForUser.set(userId.toString(), 0);
       await conv.save();
     }
+
+    // Emit real-time read event to participants
+    const readEventData = {
+      conversationId: conv._id.toString(),
+      readerId: userId.toString(),
+    };
+    conv.participantIds.forEach((pid) => {
+      emitToUser(pid.toString(), 'conversation:read', readEventData);
+    });
 
     res.status(200).json({
       success: true,

@@ -54,6 +54,7 @@ import {
   certificateApi,
   TOKEN_STORAGE_KEY,
 } from '../services/api';
+import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
 
 const STORAGE_KEY = 'SKILL_EXCHANGE_STORAGE_V1';
 const THEME_STORAGE_KEY = 'SKILL_EXCHANGE_THEME_V1';
@@ -638,6 +639,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [syncBackendData]);
 
+  // Real-time bidirectional messaging synchronization via Socket.IO
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+    if (!currentUser || !token) {
+      disconnectSocket();
+      return;
+    }
+
+    const socket = connectSocket(token);
+
+    const handleMessageReceived = (newMsg: Message) => {
+      // 1. Deduplicate & append or update message
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === newMsg.id);
+        if (exists) {
+          return prev.map((m) => (m.id === newMsg.id ? newMsg : m));
+        }
+        return [...prev, newMsg];
+      });
+
+      // 2. Real-time update to conversation list
+      setConversations((prev) => {
+        const convIndex = prev.findIndex((c) => c.id === newMsg.conversationId);
+        if (convIndex !== -1) {
+          const updated = [...prev];
+          const target = { ...updated[convIndex] };
+          target.lastMessageText = newMsg.text || (newMsg.attachmentName ? `Attachment: ${newMsg.attachmentName}` : '');
+          target.lastMessageTimestamp = newMsg.timestamp;
+
+          if (newMsg.receiverId === currentUser.id) {
+            const currentUnread = (target.unreadCountForUser && target.unreadCountForUser[currentUser.id]) || 0;
+            target.unreadCountForUser = {
+              ...(target.unreadCountForUser || {}),
+              [currentUser.id]: currentUnread + 1,
+            };
+          }
+
+          // Move updated conversation to top of list
+          updated.splice(convIndex, 1);
+          return [target, ...updated];
+        } else {
+          // If conversation is brand new, refresh conversations from backend
+          refreshConversations();
+          return prev;
+        }
+      });
+    };
+
+    const handleConversationUpdated = (updatedConv: Conversation) => {
+      setConversations((prev) => {
+        const exists = prev.some((c) => c.id === updatedConv.id);
+        if (exists) {
+          return prev.map((c) => (c.id === updatedConv.id ? { ...c, ...updatedConv } : c));
+        }
+        return [updatedConv, ...prev];
+      });
+    };
+
+    const handleConversationRead = ({ conversationId, readerId }: { conversationId: string; readerId: string }) => {
+      if (readerId === currentUser.id) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === conversationId
+              ? {
+                  ...c,
+                  unreadCountForUser: {
+                    ...(c.unreadCountForUser || {}),
+                    [currentUser.id]: 0,
+                  },
+                }
+              : c
+          )
+        );
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.conversationId === conversationId && m.receiverId === readerId
+            ? { ...m, isRead: true }
+            : m
+        )
+      );
+    };
+
+    socket.on('message:received', handleMessageReceived);
+    socket.on('conversation:updated', handleConversationUpdated);
+    socket.on('conversation:read', handleConversationRead);
+
+    return () => {
+      socket.off('message:received', handleMessageReceived);
+      socket.off('conversation:updated', handleConversationUpdated);
+      socket.off('conversation:read', handleConversationRead);
+    };
+  }, [currentUser?.id, refreshConversations]);
+
   // Reset Demo Data
   const resetDemoData = useCallback(() => {
     setUsers(INITIAL_USERS);
@@ -919,6 +1015,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const logout = useCallback(() => {
+    disconnectSocket();
     authApi.logout();
     setCurrentUser(null);
     setOtpState(null);

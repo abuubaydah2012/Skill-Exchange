@@ -1,10 +1,12 @@
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { connectDB } from './config/database.js';
 import { errorHandler, notFoundHandler } from './middleware/errorMiddleware.js';
 import { apiLimiter } from './middleware/rateLimitMiddleware.js';
+import { initSocket } from './socket.js';
 
 // Route imports
 import authRoutes from './routes/authRoutes.js';
@@ -22,6 +24,7 @@ import { Skill } from './models/Skill.js';
 dotenv.config();
 
 const app = express();
+const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
@@ -51,6 +54,9 @@ const corsOptions: cors.CorsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// 1.1 Initialize Socket.IO with matching CORS and transport configuration
+initSocket(httpServer, corsOptions);
 
 // 2. Request parsing middleware: 35mb safely accommodates 10MB PDF + 5MB image + certificate base64 payloads
 app.use(express.json({ limit: '35mb' }));
@@ -200,14 +206,15 @@ const startServer = async () => {
       console.warn('[Server Warning] MONGODB_URI is not set. Database operations will fail until configured.');
     }
 
-    app.listen(Number(PORT), '0.0.0.0', () => {
+    httpServer.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`[Server] Skill Exchange API running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
       console.log(`[Server] Health check available at: http://localhost:${PORT}/api/health`);
+      console.log(`[Server] Socket.IO real-time server ready`);
     });
   } catch (error) {
     console.error('[Server Fatal] Could not connect to database on startup:', error);
     // Still start server so /api/health can report status, but database calls will indicate failure
-    app.listen(Number(PORT), '0.0.0.0', () => {
+    httpServer.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`[Server] Running in degraded mode (Database offline) on port ${PORT}`);
     });
   }
@@ -215,4 +222,5 @@ const startServer = async () => {
 
 startServer();
 
+export { app, httpServer };
 export default app;
