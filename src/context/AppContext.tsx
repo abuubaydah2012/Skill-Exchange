@@ -809,10 +809,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 1. Check duplicate email registration against backend / database first
       try {
         const checkRes = await authApi.checkEmail(cleanEmail);
-        if (checkRes.success && checkRes.data && !checkRes.data.available) {
+        const isAvailable =
+          checkRes.data?.available !== undefined
+            ? checkRes.data.available
+            : (checkRes as any).available;
+        if (checkRes.success && isAvailable === false) {
+          const dupMsg =
+            checkRes.data?.message ||
+            checkRes.message ||
+            'An account with this email address already exists. Please sign in instead.';
           return {
             success: false,
-            error: checkRes.data.message || 'An account with this email address already exists. Please sign in instead.',
+            error: dupMsg,
           };
         }
       } catch {
@@ -867,6 +875,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 7. Secure cryptographic password hashing (never store plain text locally)
       const passwordHash = await hashPassword(data.password);
 
+      // Normalize phone number: avoid duplicating country code if input already includes it
+      const rawPhone = (data.phoneNumber || '').trim();
+      const formattedPhone = rawPhone.startsWith('+')
+        ? rawPhone
+        : `${data.countryCode} ${rawPhone}`;
+
       // 8. Submit directly to backend MongoDB Atlas API
       let apiRes;
       try {
@@ -875,7 +889,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           email: cleanEmail,
           password: data.password,
           role: data.role,
-          phoneNumber: `${data.countryCode} ${data.phoneNumber.trim()}`,
+          phoneNumber: formattedPhone,
           countryCode: data.countryCode,
           dateOfBirth: data.dateOfBirth,
           age: calculatedAge,
@@ -906,7 +920,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Strict requirement: Ensure successful registration only occurs after backend confirms user creation and JWT
       if (!apiRes || !apiRes.success || !apiRes.data?.user || !apiRes.data.token) {
-        const errorMsg = apiRes?.message || 'Registration failed on backend server. Please verify your information.';
+        const errorMsg =
+          apiRes?.message ||
+          apiRes?.error ||
+          'Registration failed on backend server. Please verify your information.';
         return {
           success: false,
           error: errorMsg,

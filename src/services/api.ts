@@ -67,9 +67,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       }
 
       if (!response.ok) {
+        const errorDetail =
+          data.message ||
+          data.error ||
+          (data.errors && typeof data.errors === 'object'
+            ? Object.values(data.errors).join(', ')
+            : undefined) ||
+          `Request failed with status ${response.status}`;
         return {
           success: false,
-          message: data.message || `Request failed with status ${response.status}`,
+          message: errorDetail,
+          error: errorDetail,
+          data: data.data || undefined,
         };
       }
 

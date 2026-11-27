@@ -24,8 +24,11 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       certificates,
     } = req.body;
 
+    console.log(`[Auth API] Registration request received: email=${email}, role=${role || 'learner'}`);
+
     // 1. Validate required fields
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      console.warn(`[Auth API] Registration rejected: invalid name provided`);
       res.status(400).json({
         success: false,
         message: 'Name is required and must be at least 2 characters long.',
@@ -34,6 +37,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     }
 
     if (!email || typeof email !== 'string') {
+      console.warn(`[Auth API] Registration rejected: missing email`);
       res.status(400).json({
         success: false,
         message: 'Email address is required.',
@@ -44,6 +48,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     const cleanEmail = email.toLowerCase().trim();
     const emailRegex = /^\S+@\S+\.\S+$/;
     if (!emailRegex.test(cleanEmail)) {
+      console.warn(`[Auth API] Registration rejected: malformed email "${cleanEmail}"`);
       res.status(400).json({
         success: false,
         message: 'Please provide a valid email address.',
@@ -52,6 +57,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     }
 
     if (!password || typeof password !== 'string' || password.length < 6) {
+      console.warn(`[Auth API] Registration rejected: password too short`);
       res.status(400).json({
         success: false,
         message: 'Password is required and must be at least 6 characters long.',
@@ -82,6 +88,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     // 2. Check for duplicate email
     const existingUserByEmail = await User.findOne({ email: cleanEmail });
     if (existingUserByEmail) {
+      console.warn(`[Auth API] Registration rejected: email already exists "${cleanEmail}"`);
       res.status(409).json({
         success: false,
         message: 'An account with this email address already exists.',
@@ -95,6 +102,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       cleanPhone = phoneNumber.trim();
       const existingUserByPhone = await User.findOne({ phoneNumber: cleanPhone });
       if (existingUserByPhone) {
+        console.warn(`[Auth API] Registration rejected: phone already exists "${cleanPhone}"`);
         res.status(409).json({
           success: false,
           message: 'An account with this phone number already exists.',
@@ -192,6 +200,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
 
     // Generate JWT token
     const token = generateToken(newUser._id, newUser.email, newUser.role);
+    console.log(`[Auth API] Registration successful: userId=${newUser._id}, email=${newUser.email}, role=${newUser.role}`);
 
     res.status(201).json({
       success: true,
@@ -203,6 +212,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       },
     });
   } catch (error) {
+    console.error(`[Auth API] Registration error caught:`, error);
     next(error);
   }
 };
@@ -216,10 +226,18 @@ export const checkEmailAvailability = async (req: Request, res: Response, next: 
     }
     const cleanEmail = email.toLowerCase().trim();
     const existing = await User.findOne({ email: cleanEmail });
+    const message = existing
+      ? 'An account with this email address already exists.'
+      : 'Email is available.';
+
     res.status(200).json({
       success: true,
       available: !existing,
-      message: existing ? 'An account with this email address already exists.' : 'Email is available.',
+      message,
+      data: {
+        available: !existing,
+        message,
+      },
     });
   } catch (error) {
     next(error);
