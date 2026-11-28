@@ -100,6 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onCloseMobile }) => {
     { label: 'Reports & Complaints', path: '/admin/complaints', icon: AlertCircle },
     { label: 'Review Moderation', path: '/admin/moderation', icon: ShieldAlert },
     { label: 'Announcements', path: '/admin/announcements', icon: Megaphone },
+    { label: 'Skill Categories', path: '/admin/categories', icon: SlidersHorizontal },
     { label: 'Platform Analytics', path: '/admin/analytics', icon: BarChart3 },
     { label: 'Live Marketplace', path: '/discover', icon: Compass },
     { label: 'Settings', path: '/settings', icon: Settings },

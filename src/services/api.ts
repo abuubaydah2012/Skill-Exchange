@@ -438,7 +438,72 @@ export const certificateApi = {
 };
 
 // -----------------------------------------------------------------------------
-// 8. Health & System Diagnostic API
+// 8. Categories & Suggestions API
+// -----------------------------------------------------------------------------
+export const categoryApi = {
+  getCategories: (includeInactive = false) =>
+    request<any[]>(`/categories${includeInactive ? '?includeInactive=true' : ''}`),
+
+  createCategory: (payload: { name: string; description?: string; icon?: string; displayOrder?: number }) =>
+    request<any>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateCategory: (
+    id: string,
+    payload: { name?: string; description?: string; icon?: string; isActive?: boolean; displayOrder?: number }
+  ) =>
+    request<any>(`/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCategory: (id: string, migrateTo?: string) =>
+    request<any>(`/categories/${id}${migrateTo ? `?migrateTo=${encodeURIComponent(migrateTo)}` : ''}`, {
+      method: 'DELETE',
+    }),
+
+  createSubcategory: (categoryId: string, payload: { name: string; description?: string }) =>
+    request<any>(`/categories/${categoryId}/subcategories`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateSubcategory: (subId: string, payload: { name?: string; description?: string; isActive?: boolean }) =>
+    request<any>(`/categories/subcategories/${subId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSubcategory: (subId: string) =>
+    request<any>(`/categories/subcategories/${subId}`, {
+      method: 'DELETE',
+    }),
+
+  getSuggestions: () => request<any[]>('/categories/suggestions'),
+
+  suggestCategory: (payload: {
+    type: 'category' | 'subcategory';
+    name: string;
+    parentCategoryId?: string;
+    description?: string;
+    reason?: string;
+  }) =>
+    request<any>('/categories/suggestions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  reviewSuggestion: (id: string, decision: 'Approved' | 'Rejected', rejectionReason?: string) =>
+    request<any>(`/categories/suggestions/${id}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ decision, rejectionReason }),
+    }),
+};
+
+// -----------------------------------------------------------------------------
+// 9. Health & System Diagnostic API
 // -----------------------------------------------------------------------------
 export const healthApi = {
   checkHealth: () => request<any>('/health'),

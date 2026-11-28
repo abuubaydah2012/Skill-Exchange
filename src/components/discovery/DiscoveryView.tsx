@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 export const DiscoveryView: React.FC = () => {
-  const { users, currentUser } = useApp();
+  const { users, currentUser, categories, categoriesLoading, categoriesError, refreshCategories } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -40,7 +40,9 @@ export const DiscoveryView: React.FC = () => {
       setSearchQuery(q);
     }
   }, [searchParams]);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('All');
+  const [categoryFilterSearch, setCategoryFilterSearch] = useState<string>('');
   const [minRating, setMinRating] = useState<number>(0);
   const [minExperience, setMinExperience] = useState<number>(0);
   const [selectedProficiency, setSelectedProficiency] = useState('All');
@@ -52,14 +54,55 @@ export const DiscoveryView: React.FC = () => {
   // Appointment Modal Target
   const [selectedTeacherForSession, setSelectedTeacherForSession] = useState<UserProfile | null>(null);
 
-  // Extract all available categories
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    users.forEach((u) => {
-      u.teachingSkills.forEach((s) => set.add(s.category));
+  // Legacy category name compatibility map for older seed/profile records
+  const LEGACY_CATEGORY_ALIASES: Record<string, string> = {
+    development: 'Technology & Programming',
+    'software engineering': 'Technology & Programming',
+    'web development': 'Technology & Programming',
+    design: 'Design & Creativity',
+    languages: 'Languages & Communication',
+    music: 'Music & Performing Arts',
+    'music & audio': 'Music & Performing Arts',
+    business: 'Business & Marketing',
+    marketing: 'Business & Marketing',
+    photography: 'Photography & Media',
+    culinary: 'Lifestyle, Health & Fitness',
+  };
+
+  const normalizeSkillCategory = (rawCategory: string) => {
+    const trimmed = (rawCategory || '').trim();
+    return LEGACY_CATEGORY_ALIASES[trimmed.toLowerCase()] || trimmed;
+  };
+
+  // Visible category tabs from MongoDB (filtered by optional categoryFilterSearch)
+  const visibleCategories = useMemo(() => {
+    const q = categoryFilterSearch.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.subcategories.some((s) => s.name.toLowerCase().includes(q))
+    );
+  }, [categories, categoryFilterSearch]);
+
+  // Available subcategories for currently selected main categories
+  const availableSubcategories = useMemo(() => {
+    if (selectedCategories.length === 0) return [];
+    const subSet = new Set<string>();
+    categories.forEach((c) => {
+      if (selectedCategories.includes(c.name)) {
+        c.subcategories.forEach((s) => subSet.add(s.name));
+      }
     });
-    return ['All', ...Array.from(set).sort()];
-  }, [users]);
+    return Array.from(subSet).sort();
+  }, [categories, selectedCategories]);
+
+  const toggleCategorySelection = (catName: string) => {
+    setSelectedSubcategory('All');
+    setSelectedCategories((prev) =>
+      prev.includes(catName) ? prev.filter((c) => c !== catName) : [...prev, catName]
+    );
+  };
 
   // Filter and sort candidates
   const filteredTeachers = useMemo(() => {
@@ -91,10 +134,23 @@ export const DiscoveryView: React.FC = () => {
         // Rating Filter
         if (minRating > 0 && user.rating < minRating) return false;
 
-        // Category Filter
-        if (selectedCategory !== 'All') {
-          const hasCategory = user.teachingSkills.some((s) => s.category === selectedCategory);
+        // Multi-Category Filter (normalizes legacy category names)
+        if (selectedCategories.length > 0) {
+          const hasCategory = user.teachingSkills.some((s) =>
+            selectedCategories.includes(normalizeSkillCategory(s.category))
+          );
           if (!hasCategory) return false;
+        }
+
+        // Subcategory Filter
+        if (selectedSubcategory !== 'All') {
+          const subLower = selectedSubcategory.toLowerCase();
+          const hasSub = user.teachingSkills.some(
+            (s) =>
+              (s.subcategory && s.subcategory.toLowerCase() === subLower) ||
+              s.name.toLowerCase().includes(subLower)
+          );
+          if (!hasSub) return false;
         }
 
         // Proficiency Filter
@@ -152,7 +208,8 @@ export const DiscoveryView: React.FC = () => {
     searchQuery,
     locationQuery,
     minRating,
-    selectedCategory,
+    selectedCategories,
+    selectedSubcategory,
     selectedProficiency,
     minExperience,
     pricingFilter,
@@ -162,7 +219,9 @@ export const DiscoveryView: React.FC = () => {
 
   const resetFilters = () => {
     setSearchQuery('');
-    setSelectedCategory('All');
+    setSelectedCategories([]);
+    setSelectedSubcategory('All');
+    setCategoryFilterSearch('');
     setMinRating(0);
     setMinExperience(0);
     setSelectedProficiency('All');
@@ -174,7 +233,8 @@ export const DiscoveryView: React.FC = () => {
 
   const hasActiveFilters =
     searchQuery !== '' ||
-    selectedCategory !== 'All' ||
+    selectedCategories.length > 0 ||
+    selectedSubcategory !== 'All' ||
     minRating > 0 ||
     minExperience > 0 ||
     selectedProficiency !== 'All' ||
@@ -221,22 +281,105 @@ export const DiscoveryView: React.FC = () => {
           </div>
         </div>
 
-        {/* Category Filter Tabs (Single-Line Buttons) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                selectedCategory === cat
-                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+        {/* Dynamic MongoDB Category & Subcategory Filter */}
+        <div className="space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">
+              Categories {selectedCategories.length > 0 ? `(${selectedCategories.length} selected)` : ''}
+            </span>
+            <div className="relative w-full sm:w-56">
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-2" />
+              <input
+                type="text"
+                value={categoryFilterSearch}
+                onChange={(e) => setCategoryFilterSearch(e.target.value)}
+                placeholder="Filter categories..."
+                className="w-full pl-8 pr-3 py-1 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          {categoriesError ? (
+            <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center justify-between">
+              <span>{categoriesError}</span>
+              <button type="button" onClick={refreshCategories} className="font-semibold underline cursor-pointer">
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategories([]);
+                  setSelectedSubcategory('All');
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  selectedCategories.length === 0
+                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                }`}
+              >
+                All Categories
+              </button>
+
+              {categoriesLoading ? (
+                <span className="text-xs text-neutral-400 px-2">Loading categories...</span>
+              ) : (
+                visibleCategories.map((cat) => {
+                  const isSelected = selectedCategories.includes(cat.name);
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => toggleCategorySelection(cat.name)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* Dynamic Subcategories for Selected Main Categories */}
+          {availableSubcategories.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1">
+              <span className="text-[11px] font-semibold text-neutral-400 shrink-0 mr-1">
+                Subcategory:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedSubcategory('All')}
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  selectedSubcategory === 'All'
+                    ? 'bg-sky-600 text-white font-semibold'
+                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                }`}
+              >
+                All
+              </button>
+              {availableSubcategories.map((subName) => (
+                <button
+                  key={subName}
+                  type="button"
+                  onClick={() => setSelectedSubcategory(subName)}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                    selectedSubcategory === subName
+                      ? 'bg-sky-600 text-white font-semibold'
+                      : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  {subName}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Secondary Filter Controls */}

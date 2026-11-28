@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
+import { categoryApi } from '../../services/api';
 import { UserSkill, ProficiencyLevel } from '../../types';
 import { Badge } from '../common/Badge';
 import {
@@ -19,16 +20,22 @@ import {
   AlertCircle,
   X,
   Sparkles,
+  Search,
 } from 'lucide-react';
 
 export const SkillsView: React.FC = () => {
   const {
     currentUser,
+    categories,
+    categoriesLoading,
+    categoriesError,
+    refreshCategories,
     addSkill,
     editSkill,
     deleteSkill,
     addLearningInterest,
     removeLearningInterest,
+    addToast,
   } = useApp();
 
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
@@ -36,8 +43,18 @@ export const SkillsView: React.FC = () => {
 
   // Skill Form State
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Development');
+  const [category, setCategory] = useState('');
+  const [subcategory, setSubcategory] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
   const [description, setDescription] = useState('');
+
+  // Suggest New Category Modal State
+  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false);
+  const [suggestType, setSuggestType] = useState<'category' | 'subcategory'>('category');
+  const [suggestName, setSuggestName] = useState('');
+  const [suggestParentId, setSuggestParentId] = useState('');
+  const [suggestDesc, setSuggestDesc] = useState('');
+  const [isSuggesting, setIsSuggesting] = useState(false);
   const [proficiency, setProficiency] = useState<ProficiencyLevel>('Advanced');
   const [yearsExperience, setYearsExperience] = useState(4);
   const [freeSwapAvailable, setFreeSwapAvailable] = useState(true);
@@ -50,10 +67,29 @@ export const SkillsView: React.FC = () => {
 
   if (!currentUser) return null;
 
+  const filteredCategoryOptions = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.subcategories.some((s) => s.name.toLowerCase().includes(q))
+    );
+  }, [categories, categorySearch]);
+
+  const selectedCategoryObj = useMemo(
+    () => categories.find((c) => c.name === category) || null,
+    [categories, category]
+  );
+
+  const availableSubcategories = selectedCategoryObj?.subcategories || [];
+
   const openAddModal = () => {
     setEditingSkill(null);
     setName('');
-    setCategory('Development');
+    setCategory(categories[0]?.name || '');
+    setSubcategory('');
+    setCategorySearch('');
     setDescription('');
     setProficiency('Advanced');
     setYearsExperience(3);
@@ -68,6 +104,8 @@ export const SkillsView: React.FC = () => {
     setEditingSkill(skill);
     setName(skill.name);
     setCategory(skill.category);
+    setSubcategory(skill.subcategory || '');
+    setCategorySearch('');
     setDescription(skill.description);
     setProficiency(skill.proficiency);
     setYearsExperience(skill.yearsExperience);
@@ -80,12 +118,18 @@ export const SkillsView: React.FC = () => {
 
   const handleSkillSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !category) return;
+
+    const matchedCat = categories.find((c) => c.name === category);
+    const matchedSub = matchedCat?.subcategories.find((s) => s.name === subcategory);
 
     if (editingSkill) {
       editSkill(editingSkill.id, {
         name: name.trim(),
         category,
+        subcategory: subcategory || '',
+        categoryId: matchedCat?.id,
+        subcategoryId: matchedSub?.id,
         description: description.trim(),
         proficiency,
         yearsExperience,
@@ -98,6 +142,9 @@ export const SkillsView: React.FC = () => {
       addSkill({
         name: name.trim(),
         category,
+        subcategory: subcategory || '',
+        categoryId: matchedCat?.id,
+        subcategoryId: matchedSub?.id,
         description: description.trim(),
         proficiency,
         yearsExperience,
@@ -110,6 +157,34 @@ export const SkillsView: React.FC = () => {
     }
 
     setIsSkillModalOpen(false);
+  };
+
+  const handleSuggestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suggestName.trim()) return;
+    setIsSuggesting(true);
+    try {
+      const res = await categoryApi.suggestCategory({
+        type: suggestType,
+        name: suggestName.trim(),
+        parentCategoryId: suggestType === 'subcategory' ? suggestParentId : undefined,
+        description: suggestDesc.trim(),
+      });
+      if (res.success) {
+        addToast(
+          'success',
+          'Suggestion Submitted',
+          'Your category suggestion was sent to Admins for review.'
+        );
+        setIsSuggestModalOpen(false);
+        setSuggestName('');
+        setSuggestDesc('');
+      } else {
+        addToast('error', 'Submission Failed', res.message || 'Could not submit suggestion.');
+      }
+    } finally {
+      setIsSuggesting(false);
+    }
   };
 
   const handleAddInterest = (e: React.FormEvent) => {
@@ -179,6 +254,7 @@ export const SkillsView: React.FC = () => {
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-xs text-neutral-500 font-medium">
                       {sk.category}
+                      {sk.subcategory ? ` · ${sk.subcategory}` : ''}
                     </span>
                     <Badge
                       variant={
@@ -344,41 +420,107 @@ export const SkillsView: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    Category
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                    Main Category
                   </label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSuggestType('category');
+                      setSuggestParentId(selectedCategoryObj?.id || categories[0]?.id || '');
+                      setIsSuggestModalOpen(true);
+                    }}
+                    className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
                   >
-                    <option value="Development">Development</option>
-                    <option value="Design">Design</option>
-                    <option value="Languages">Languages</option>
-                    <option value="Business">Business</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Music">Music</option>
-                    <option value="Culinary">Culinary</option>
-                    <option value="Photography">Photography</option>
-                  </select>
+                    <Sparkles className="w-3 h-3" />
+                    <span>Suggest a New Category</span>
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    Proficiency Level
-                  </label>
-                  <select
-                    value={proficiency}
-                    onChange={(e) => setProficiency(e.target.value as ProficiencyLevel)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
-                  >
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
-                    <option value="Expert">Expert</option>
-                  </select>
+                {categoriesError ? (
+                  <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center justify-between gap-2">
+                    <span>{categoriesError}</span>
+                    <button
+                      type="button"
+                      onClick={refreshCategories}
+                      className="font-semibold underline cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        value={categorySearch}
+                        onChange={(e) => setCategorySearch(e.target.value)}
+                        placeholder="Filter categories..."
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                      />
+                    </div>
+                    <select
+                      required
+                      disabled={categoriesLoading}
+                      value={category}
+                      onChange={(e) => {
+                        setCategory(e.target.value);
+                        setSubcategory('');
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                    >
+                      {categoriesLoading ? (
+                        <option value="">Loading categories...</option>
+                      ) : filteredCategoryOptions.length === 0 ? (
+                        <option value="">No categories match filter</option>
+                      ) : (
+                        filteredCategoryOptions.map((c) => (
+                          <option key={c.id} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                      Subcategory (Optional)
+                    </label>
+                    <select
+                      value={subcategory}
+                      onChange={(e) => setSubcategory(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                    >
+                      <option value="">General / All in {category || 'Category'}</option>
+                      {availableSubcategories.map((sub) => (
+                        <option key={sub.id} value={sub.name}>
+                          {sub.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                      Proficiency Level
+                    </label>
+                    <select
+                      value={proficiency}
+                      onChange={(e) => setProficiency(e.target.value as ProficiencyLevel)}
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                    >
+                      <option value="Beginner">Beginner</option>
+                      <option value="Intermediate">Intermediate</option>
+                      <option value="Advanced">Advanced</option>
+                      <option value="Expert">Expert</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -475,6 +617,108 @@ export const SkillsView: React.FC = () => {
                   className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
                 >
                   {editingSkill ? 'Save Changes' : 'Add Skill'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Suggest New Category Modal */}
+      {isSuggestModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Suggest a New Category
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSuggestModalOpen(false)}
+                className="text-neutral-400 hover:text-neutral-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSuggestSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Suggestion Type
+                </label>
+                <select
+                  value={suggestType}
+                  onChange={(e) => setSuggestType(e.target.value as 'category' | 'subcategory')}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                >
+                  <option value="category">New Main Category</option>
+                  <option value="subcategory">New Subcategory under Existing Category</option>
+                </select>
+              </div>
+
+              {suggestType === 'subcategory' && (
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                    Parent Category
+                  </label>
+                  <select
+                    required
+                    value={suggestParentId}
+                    onChange={(e) => setSuggestParentId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Proposed Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={suggestName}
+                  onChange={(e) => setSuggestName(e.target.value)}
+                  placeholder="e.g. Quantum Computing or Blockchain Architecture"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Description / Rationale (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={suggestDesc}
+                  onChange={(e) => setSuggestDesc(e.target.value)}
+                  placeholder="Briefly describe what skills belong here..."
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSuggestModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSuggesting}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSuggesting ? 'Submitting...' : 'Submit for Approval'}
                 </button>
               </div>
             </form>

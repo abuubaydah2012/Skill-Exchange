@@ -23,6 +23,7 @@ import {
   PlatformAnnouncement,
   RegisterUserData,
   IdentityDocumentType,
+  CategoryItem,
 } from '../types';
 import {
   calculateAge,
@@ -52,6 +53,7 @@ import {
   notificationApi,
   reviewApi,
   certificateApi,
+  categoryApi,
   TOKEN_STORAGE_KEY,
 } from '../services/api';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -184,6 +186,12 @@ interface AppContextType {
   toggleUserVerification: (userId: string) => void;
   saveAnnouncement: (announcement: Partial<PlatformAnnouncement> & { title: string; content: string }) => void;
   toggleAnnouncementActive: (announcementId: string) => void;
+
+  // Dynamic Categories
+  categories: CategoryItem[];
+  categoriesLoading: boolean;
+  categoriesError: string | null;
+  refreshCategories: () => Promise<void>;
 
   // Dashboard In-Place Search
   dashboardSearchQuery: string;
@@ -340,6 +348,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const triggerDashboardSearch = useCallback(() => {
     setDashboardSearchSubmitCount((c) => c + 1);
   }, []);
+
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState<boolean>(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
+
+  const refreshCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    setCategoriesError(null);
+    try {
+      const res = await categoryApi.getCategories();
+      if (res.success && Array.isArray(res.data)) {
+        setCategories(res.data);
+      } else {
+        setCategoriesError(res.message || 'Could not load skill categories.');
+      }
+    } catch (err: any) {
+      setCategoriesError(err?.message || 'Failed to load skill categories.');
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCategories();
+  }, [refreshCategories]);
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     try {
@@ -1500,6 +1533,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .createSkill({
           name: skillData.name,
           category: skillData.category,
+          subcategory: skillData.subcategory,
+          categoryId: skillData.categoryId,
+          subcategoryId: skillData.subcategoryId,
           proficiency: skillData.proficiency,
           description: skillData.description,
           yearsExperience: skillData.yearsExperience,
@@ -2619,6 +2655,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reviewIdentityVerification,
         saveAnnouncement,
         toggleAnnouncementActive,
+
+        categories,
+        categoriesLoading,
+        categoriesError,
+        refreshCategories,
 
         dashboardSearchQuery,
         setDashboardSearchQuery,

@@ -17,6 +17,8 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import certificateRoutes from './routes/certificateRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
+import categoryRoutes from './routes/categoryRoutes.js';
+import { ensureDefaultCategoriesAndMigrateSkills } from './utils/categorySeed.js';
 import { User } from './models/User.js';
 import { Skill } from './models/Skill.js';
 
@@ -100,6 +102,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/certificates', certificateRoutes);
+app.use('/api/categories', categoryRoutes);
 
 // 6. 404 & Centralized Error Handlers
 app.use(notFoundHandler);
@@ -201,6 +204,7 @@ const startServer = async () => {
   try {
     if (process.env.MONGODB_URI) {
       await connectDB();
+      await ensureDefaultCategoriesAndMigrateSkills();
       await ensureDefaultDemoAccounts();
     } else {
       console.warn('[Server Warning] MONGODB_URI is not set. Database operations will fail until configured.');

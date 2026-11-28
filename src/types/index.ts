@@ -46,6 +46,9 @@ export interface UserSkill {
   id: string;
   name: string;
   category: string;
+  subcategory?: string;
+  categoryId?: string;
+  subcategoryId?: string;
   description: string;
   proficiency: ProficiencyLevel;
   yearsExperience: number;
@@ -54,6 +57,41 @@ export interface UserSkill {
   hourlyPrice: number; // in USD
   availabilitySchedule: string; // e.g. "Weekdays 6-9 PM, Sat mornings"
   verificationStatus: SkillVerificationStatus;
+}
+
+export interface SubcategoryItem {
+  id: string;
+  categoryId: string;
+  name: string;
+  slug: string;
+  description?: string;
+  isActive: boolean;
+}
+
+export interface CategoryItem {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  icon?: string;
+  isActive: boolean;
+  displayOrder: number;
+  subcategories: SubcategoryItem[];
+}
+
+export interface CategorySuggestionItem {
+  id: string;
+  type: 'category' | 'subcategory';
+  name: string;
+  parentCategoryId?: string;
+  parentCategoryName?: string;
+  description?: string;
+  reason?: string;
+  suggestedBy: string;
+  suggestedByName?: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  rejectionReason?: string;
+  createdAt: string;
 }
 
 export interface Certificate {

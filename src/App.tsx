@@ -38,6 +38,7 @@ import { AdminComplaintsView } from './components/admin/AdminComplaintsView';
 import { AdminModerationView } from './components/admin/AdminModerationView';
 import { AdminAnnouncementsView } from './components/admin/AdminAnnouncementsView';
 import { AdminAnalyticsView } from './components/admin/AdminAnalyticsView';
+import { AdminCategoriesView } from './components/admin/AdminCategoriesView';
 
 // Common
 import { NotFoundView } from './components/common/NotFoundView';
@@ -95,6 +96,7 @@ export default function App() {
             <Route path="/admin/moderation" element={<AdminModerationView />} />
             <Route path="/admin/announcements" element={<AdminAnnouncementsView />} />
             <Route path="/admin/analytics" element={<AdminAnalyticsView />} />
+            <Route path="/admin/categories" element={<AdminCategoriesView />} />
           </Route>
 
           {/* 404 Catch-All */}

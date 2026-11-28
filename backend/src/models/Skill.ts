@@ -5,6 +5,9 @@ export interface ISkill extends Document {
   userId: Types.ObjectId;
   name: string; // Skill name
   category: string;
+  subcategory?: string;
+  categoryId?: Types.ObjectId;
+  subcategoryId?: Types.ObjectId;
   description: string;
   proficiency: 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
   skillType: 'Teaching' | 'Learning';
@@ -37,6 +40,22 @@ const SkillSchema = new Schema<ISkill>(
       type: String,
       required: [true, 'Skill category is required'],
       trim: true,
+      index: true,
+    },
+    subcategory: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    categoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Category',
+      index: true,
+    },
+    subcategoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Subcategory',
       index: true,
     },
     description: {
@@ -116,7 +135,7 @@ SkillSchema.virtual('pricing').get(function () {
 });
 
 // Composite index for fast marketplace search & category filters
-SkillSchema.index({ category: 1, skillType: 1, freeSwapAvailable: 1 });
+SkillSchema.index({ category: 1, subcategory: 1, skillType: 1, freeSwapAvailable: 1 });
 SkillSchema.index({ name: 'text', description: 'text' });
 
 export const Skill = mongoose.model<ISkill>('Skill', SkillSchema);
