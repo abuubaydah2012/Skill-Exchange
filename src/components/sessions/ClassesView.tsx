@@ -4,49 +4,97 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { classApi } from '../../services/api';
 import { ClassSession } from '../../types';
 import { ClassModal } from './ClassModal';
-import { MeetingRoomModal } from './MeetingRoomModal';
-import { PaymentModal } from '../payments/PaymentModal';
 import { Badge } from '../common/Badge';
+import { Avatar } from '../common/Avatar';
 import {
   Video,
   Plus,
   Calendar,
   Users,
   Clock,
-  DollarSign,
-  AlertTriangle,
-  Play,
-  CheckCircle2,
-  XCircle,
   ExternalLink,
+  X,
+  Info,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
+const JOIN_WINDOW_MINUTES = 15;
+
 export const ClassesView: React.FC = () => {
-  const { currentUser, classes, cancelClass, completeClass, enrollInClass } = useApp();
-  const [searchParams] = useSearchParams();
+  const {
+    currentUser,
+    classes,
+    categories,
+    cancelClass,
+    completeClass,
+    enrollInClass,
+    addToast,
+  } = useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [filterType, setFilterType] = useState<'my_sessions' | 'my_enrollments' | 'all' | 'free' | 'paid'>('my_sessions');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [backendScopedClasses, setBackendScopedClasses] = useState<ClassSession[] | null>(null);
   const [isLoadingClasses, setIsLoadingClasses] = useState(false);
 
   // Modals state
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | undefined>(undefined);
-  const [activeMeetingSession, setActiveMeetingSession] = useState<ClassSession | null>(null);
-  const [payingSession, setPayingSession] = useState<ClassSession | null>(null);
+  const [detailsClass, setDetailsClass] = useState<ClassSession | null>(null);
+  const [cancellingClass, setCancellingClass] = useState<ClassSession | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
 
-  // Auto-open modal if URL has ?action=new
+  // Keep join-window countdown fresh every 30s while details modal is open
   useEffect(() => {
-    if (searchParams.get('action') === 'new') {
+    if (!detailsClass) return;
+    setNowTick(Date.now());
+    const id = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, [detailsClass]);
+
+  // Auto-open create modal if URL has ?action=new (teachers/admins only)
+  useEffect(() => {
+    if (
+      searchParams.get('action') === 'new' &&
+      currentUser &&
+      (currentUser.role === 'teacher' || currentUser.role === 'admin')
+    ) {
       setIsClassModalOpen(true);
     }
-  }, [searchParams]);
+  }, [searchParams, currentUser]);
+
+  // Open class details directly if ?classId=... is passed (e.g. from notification)
+  useEffect(() => {
+    const classId = searchParams.get('classId');
+    if (!classId || !currentUser) return;
+    let cancelled = false;
+    classApi
+      .getClassById(classId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setDetailsClass(res.data);
+          setFilterType('all');
+        }
+      })
+      .catch(() => {
+        const local = classes.find((c) => c.id === classId);
+        if (local) setDetailsClass(local);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, currentUser]);
 
   // Fetch user-scoped workshops from MongoDB backend
   useEffect(() => {
@@ -65,11 +113,16 @@ export const ClassesView: React.FC = () => {
         scope,
         tab: activeTab,
         pricing: filterType === 'free' ? 'free' : filterType === 'paid' ? 'paid' : 'all',
+        category: selectedCategory,
       })
       .then((res) => {
         if (cancelled) return;
         if (res.success && Array.isArray(res.data)) {
           setBackendScopedClasses(res.data);
+          if (detailsClass) {
+            const refreshed = res.data.find((c: ClassSession) => c.id === detailsClass.id);
+            if (refreshed) setDetailsClass(refreshed);
+          }
         }
       })
       .catch(() => {})
@@ -80,14 +133,14 @@ export const ClassesView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currentUser, activeTab, filterType, classes.length]);
+  }, [currentUser, activeTab, filterType, selectedCategory, classes]);
 
   if (!currentUser) return null;
 
+  const canHostClasses = currentUser.role === 'teacher' || currentUser.role === 'admin';
   const sourceClasses = backendScopedClasses ?? classes;
 
   const filteredClasses = sourceClasses.filter((cls) => {
-    // Upcoming vs Past
     if (activeTab === 'upcoming' && (cls.status === 'Completed' || cls.status === 'Cancelled')) {
       return false;
     }
@@ -98,7 +151,6 @@ export const ClassesView: React.FC = () => {
     const isEnrolled = cls.enrolledUserIds.includes(currentUser.id);
     const isTeacher = cls.teacherId === currentUser.id;
 
-    // Personal filtering: My Sessions / My Enrollments / Free / Paid (never leak unenrolled workshops into My Sessions)
     if (filterType === 'my_enrollments') {
       if (!isEnrolled) return false;
     } else if (filterType !== 'all') {
@@ -111,15 +163,88 @@ export const ClassesView: React.FC = () => {
 
     if (filterType === 'free' && !cls.isFree) return false;
     if (filterType === 'paid' && cls.isFree) return false;
+    if (selectedCategory !== 'All' && cls.category !== selectedCategory) return false;
 
     return true;
   });
 
-  const handleEnrollClick = (cls: ClassSession) => {
-    if (cls.isFree || cls.price === 0) {
-      enrollInClass(cls.id);
-    } else {
-      setPayingSession(cls);
+  const handleEnrollClick = async (cls: ClassSession) => {
+    if (!cls.isFree && cls.price > 0) {
+      addToast(
+        'info',
+        'Payment Integration Required',
+        'Online payment processing is not yet available for paid classes.'
+      );
+      setDetailsClass(cls);
+      return;
+    }
+    setIsProcessingAction(true);
+    try {
+      const ok = await enrollInClass(cls.id);
+      if (ok && detailsClass?.id === cls.id) {
+        const res = await classApi.getClassById(cls.id);
+        if (res.success && res.data) setDetailsClass(res.data);
+      }
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const getJoinState = (cls: ClassSession) => {
+    const startMs = new Date(cls.dateTime).getTime();
+    const endMs = startMs + (cls.durationMinutes || 60) * 60 * 1000;
+    const windowStartMs = startMs - JOIN_WINDOW_MINUTES * 60 * 1000;
+
+    if (cls.status === 'Cancelled') {
+      return { canJoin: false, reason: 'This class was cancelled.' };
+    }
+    if (cls.status === 'Completed' || nowTick > endMs) {
+      return { canJoin: false, reason: 'This class has ended.' };
+    }
+    if (nowTick < windowStartMs) {
+      const diffMins = Math.ceil((windowStartMs - nowTick) / 60000);
+      const hrs = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      const timeText = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+      return {
+        canJoin: false,
+        reason: `Joining opens ${JOIN_WINDOW_MINUTES} mins before start (in ${timeText}).`,
+      };
+    }
+    if (!cls.meetingLink) {
+      return {
+        canJoin: false,
+        reason: 'Instructor has not added an external meeting link yet.',
+      };
+    }
+    return { canJoin: true, reason: 'Session window is open.' };
+  };
+
+  const handleJoinMeeting = (cls: ClassSession) => {
+    const state = getJoinState(cls);
+    if (!state.canJoin || !cls.meetingLink) {
+      addToast('info', 'Join Unavailable', state.reason);
+      return;
+    }
+    window.open(cls.meetingLink, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleConfirmCancel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cancellingClass) return;
+    setIsProcessingAction(true);
+    try {
+      const ok = await cancelClass(
+        cancellingClass.id,
+        cancelReason.trim() || 'Cancelled by instructor.'
+      );
+      if (ok) {
+        setCancellingClass(null);
+        setCancelReason('');
+        setDetailsClass(null);
+      }
+    } finally {
+      setIsProcessingAction(false);
     }
   };
 
@@ -129,29 +254,33 @@ export const ClassesView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
-            Live Classes & Workshops
+            Live Classes &amp; Workshops
           </h1>
           <p className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             Group masterclasses, practice labs, and interactive mentorship sessions.
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setEditingClass(undefined);
-            setIsClassModalOpen(true);
-          }}
-          className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Host a Class</span>
-        </button>
+        {canHostClasses && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditingClass(undefined);
+              setIsClassModalOpen(true);
+            }}
+            className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Host a Class</span>
+          </button>
+        )}
       </div>
 
       {/* Tabs and Secondary Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-neutral-200 dark:border-neutral-800">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-2 border-b border-neutral-200 dark:border-neutral-800">
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={() => setActiveTab('upcoming')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
               activeTab === 'upcoming'
@@ -162,6 +291,7 @@ export const ClassesView: React.FC = () => {
             Scheduled Workshops
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('past')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
               activeTab === 'past'
@@ -173,26 +303,43 @@ export const ClassesView: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-          {(['my_sessions', 'my_enrollments', 'all', 'free', 'paid'] as const).map((ft) => (
-            <button
-              key={ft}
-              onClick={() => setFilterType(ft)}
-              className={`px-2.5 py-1 rounded-md capitalize whitespace-nowrap transition-colors cursor-pointer ${
-                filterType === ft
-                  ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-white font-semibold'
-                  : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300'
-              }`}
-            >
-              {ft === 'my_sessions'
-                ? 'My Sessions'
-                : ft === 'my_enrollments'
-                ? 'My Enrollments'
-                : ft === 'all'
-                ? 'All Workshops'
-                : ft}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {(['my_sessions', 'my_enrollments', 'all', 'free', 'paid'] as const).map((ft) => (
+              <button
+                key={ft}
+                type="button"
+                onClick={() => setFilterType(ft)}
+                className={`px-2.5 py-1 rounded-md capitalize whitespace-nowrap transition-colors cursor-pointer ${
+                  filterType === ft
+                    ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-white font-semibold'
+                    : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300'
+                }`}
+              >
+                {ft === 'my_sessions'
+                  ? 'My Sessions'
+                  : ft === 'my_enrollments'
+                  ? 'My Enrollments'
+                  : ft === 'all'
+                  ? 'All Workshops'
+                  : ft}
+              </button>
+            ))}
+          </div>
+
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            aria-label="Filter by category"
+            className="px-2.5 py-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-700 dark:text-neutral-300 text-xs"
+          >
+            <option value="All">All Categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -212,7 +359,7 @@ export const ClassesView: React.FC = () => {
             {activeTab === 'past'
               ? 'Your completed workshops will appear here.'
               : filterType === 'all'
-              ? 'No scheduled workshops are available right now.'
+              ? 'No scheduled workshops match your current filters.'
               : "You haven't enrolled in any workshops yet. Explore available workshops and join a session to start learning."}
           </p>
           {activeTab === 'upcoming' && filterType !== 'all' && (
@@ -221,6 +368,7 @@ export const ClassesView: React.FC = () => {
               onClick={() => {
                 setActiveTab('upcoming');
                 setFilterType('all');
+                setSelectedCategory('All');
               }}
               className="mt-4 px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors cursor-pointer"
             >
@@ -235,6 +383,7 @@ export const ClassesView: React.FC = () => {
             const isEnrolled = cls.enrolledUserIds.includes(currentUser.id);
             const seatCount = cls.enrolledCount ?? cls.enrolledUserIds.length;
             const isFull = seatCount >= cls.capacity;
+            const joinState = getJoinState(cls);
 
             return (
               <div
@@ -242,10 +391,20 @@ export const ClassesView: React.FC = () => {
                 className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors flex flex-col justify-between"
               >
                 <div>
+                  {cls.thumbnailUrl && (
+                    <img
+                      src={cls.thumbnailUrl}
+                      alt={cls.title}
+                      className="w-full h-32 object-cover rounded-xl mb-3 border border-neutral-200 dark:border-neutral-800"
+                    />
+                  )}
+
                   {/* Category and Price Pill */}
                   <div className="flex items-center justify-between text-xs text-neutral-500">
-                    <span className="font-medium">{cls.category} · {cls.format}</span>
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    <span className="font-medium truncate">
+                      {cls.category} · {cls.format}
+                    </span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">
                       {cls.isFree ? 'Free' : `$${cls.price} USD`}
                     </span>
                   </div>
@@ -268,22 +427,28 @@ export const ClassesView: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-neutral-500">Date & Time:</span>
-                      <span>{new Date(cls.dateTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-neutral-500">Date &amp; Time:</span>
+                      <span>
+                        {new Date(cls.dateTime).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-neutral-500">Seat Capacity:</span>
+                      <span className="text-neutral-500">Seats:</span>
                       <span className="font-mono tabular-nums">
-                        {seatCount} / {cls.capacity} seats taken
+                        {seatCount} / {cls.capacity} enrolled
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Actions Footer */}
-                <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between gap-2">
-                  {/* Status Badge */}
+                <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-2">
                   <Badge
                     variant={
                       cls.status === 'Completed'
@@ -295,42 +460,55 @@ export const ClassesView: React.FC = () => {
                         : 'info'
                     }
                   >
-                    {cls.status === 'Scheduled' && (isEnrolled || isTeacher)
+                    {cls.status === 'Scheduled' && isEnrolled
                       ? 'Enrolled'
+                      : cls.status === 'Scheduled' && isTeacher
+                      ? 'Hosting'
                       : cls.status}
                   </Badge>
 
-                  <div className="flex items-center gap-2">
-                    {/* Launch Room Button for participants & host */}
-                    {cls.status === 'Scheduled' && (isEnrolled || isTeacher) && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setDetailsClass(cls)}
+                      className="px-2.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Details
+                    </button>
+
+                    {/* Join Class button for enrolled students & host */}
+                    {cls.status === 'Scheduled' && (isEnrolled || isTeacher) && joinState.canJoin && (
                       <button
-                        onClick={() => setActiveMeetingSession(cls)}
+                        type="button"
+                        onClick={() => handleJoinMeeting(cls)}
                         className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
                       >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>Launch Room</span>
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Join Class</span>
                       </button>
                     )}
 
                     {/* Enrollment Button for non-enrolled students */}
                     {cls.status === 'Scheduled' && !isTeacher && !isEnrolled && (
                       <button
+                        type="button"
                         onClick={() => handleEnrollClick(cls)}
-                        disabled={isFull}
-                        className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                        disabled={isFull || isProcessingAction}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                           isFull
                             ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'
                             : 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 hover:bg-neutral-800'
                         }`}
                       >
-                        {isFull ? 'Sold Out' : cls.isFree ? 'Join Free' : `Enroll · $${cls.price}`}
+                        {isFull ? 'Full' : cls.isFree ? 'Enroll Now' : `$${cls.price} USD`}
                       </button>
                     )}
 
-                    {/* Teacher controls */}
+                    {/* Teacher quick controls */}
                     {isTeacher && cls.status === 'Scheduled' && (
                       <>
                         <button
+                          type="button"
                           onClick={() => {
                             setEditingClass(cls);
                             setIsClassModalOpen(true);
@@ -340,7 +518,11 @@ export const ClassesView: React.FC = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => cancelClass(cls.id, 'Cancelled by teacher due to schedule conflict.')}
+                          type="button"
+                          onClick={() => {
+                            setCancellingClass(cls);
+                            setCancelReason('');
+                          }}
                           className="px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg cursor-pointer"
                         >
                           Cancel
@@ -367,23 +549,269 @@ export const ClassesView: React.FC = () => {
         />
       )}
 
-      {/* Simulated Live Video Meeting Room */}
-      {activeMeetingSession && (
-        <MeetingRoomModal
-          session={activeMeetingSession}
-          isOpen={!!activeMeetingSession}
-          onClose={() => setActiveMeetingSession(null)}
-        />
+      {/* Class Details Modal */}
+      {detailsClass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-xl my-auto bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                  <span>{detailsClass.category}</span>
+                  <span>·</span>
+                  <span>{detailsClass.format}</span>
+                </div>
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white mt-0.5">
+                  {detailsClass.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailsClass(null);
+                  if (searchParams.get('classId')) {
+                    searchParams.delete('classId');
+                    setSearchParams(searchParams, { replace: true });
+                  }
+                }}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {detailsClass.thumbnailUrl && (
+              <img
+                src={detailsClass.thumbnailUrl}
+                alt={detailsClass.title}
+                className="w-full h-44 object-cover rounded-xl border border-neutral-200 dark:border-neutral-800"
+              />
+            )}
+
+            <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed">
+              {detailsClass.description}
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Instructor</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tid = detailsClass.teacherId;
+                    setDetailsClass(null);
+                    navigate(`/profile/${tid}`);
+                  }}
+                  className="font-semibold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer text-left"
+                >
+                  {detailsClass.teacherName}
+                </button>
+              </div>
+              <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Skill / Topic</span>
+                <span className="font-semibold text-neutral-900 dark:text-white">{detailsClass.skillName}</span>
+              </div>
+              <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Date &amp; Start Time</span>
+                <span className="font-semibold text-neutral-900 dark:text-white">
+                  {new Date(detailsClass.dateTime).toLocaleString([], {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Duration &amp; Pricing</span>
+                <span className="font-semibold text-neutral-900 dark:text-white">
+                  {detailsClass.durationMinutes} mins · {detailsClass.isFree ? 'Free' : `$${detailsClass.price} USD`}
+                </span>
+              </div>
+            </div>
+
+            {detailsClass.instructions && (
+              <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-xs">
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block mb-1">
+                  Meeting Instructions
+                </span>
+                <p className="text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">
+                  {detailsClass.instructions}
+                </p>
+              </div>
+            )}
+
+            {/* Paid class notice */}
+            {!detailsClass.isFree &&
+              detailsClass.price > 0 &&
+              detailsClass.teacherId !== currentUser.id &&
+              !detailsClass.enrolledUserIds.includes(currentUser.id) && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    This is a paid class (${detailsClass.price} USD). Online payment integration is not yet available, so paid checkout is currently disabled.
+                  </span>
+                </div>
+              )}
+
+            {/* Join Window Status for enrolled students & host teacher */}
+            {(detailsClass.enrolledUserIds.includes(currentUser.id) ||
+              detailsClass.teacherId === currentUser.id) && (
+              <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-xs flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-neutral-600 dark:text-neutral-300">
+                  <Clock className="w-4 h-4 text-sky-500 shrink-0" />
+                  <span>{getJoinState(detailsClass).reason}</span>
+                </div>
+                {getJoinState(detailsClass).canJoin && (
+                  <button
+                    type="button"
+                    onClick={() => handleJoinMeeting(detailsClass)}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Join Class</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Host Teacher: Enrolled Students List & Management */}
+            {detailsClass.teacherId === currentUser.id && (
+              <div className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-neutral-500" />
+                    <span>
+                      Enrolled Students ({detailsClass.enrolledCount ?? detailsClass.enrolledUserIds.length} / {detailsClass.capacity})
+                    </span>
+                  </span>
+                </div>
+                {detailsClass.enrolledStudents && detailsClass.enrolledStudents.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {detailsClass.enrolledStudents.map((st) => (
+                      <div
+                        key={st.id}
+                        className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xs"
+                      >
+                        <Avatar
+                          name={st.name}
+                          avatarUrl={st.avatarUrl}
+                          bgColor={st.avatarBgColor || '#0284c7'}
+                          size="sm"
+                        />
+                        <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                          {st.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-neutral-500">No students enrolled yet.</p>
+                )}
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800 flex flex-wrap items-center justify-end gap-2">
+              {detailsClass.teacherId === currentUser.id && detailsClass.status === 'Scheduled' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = detailsClass;
+                      setDetailsClass(null);
+                      setEditingClass(target);
+                      setIsClassModalOpen(true);
+                    }}
+                    className="px-3.5 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 rounded-lg cursor-pointer"
+                  >
+                    Edit / Reschedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => completeClass(detailsClass.id)}
+                    className="px-3.5 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg cursor-pointer flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Mark Completed</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancellingClass(detailsClass);
+                      setCancelReason('');
+                    }}
+                    className="px-3.5 py-2 text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-lg cursor-pointer"
+                  >
+                    Cancel Class
+                  </button>
+                </>
+              )}
+
+              {detailsClass.status === 'Scheduled' &&
+                detailsClass.teacherId !== currentUser.id &&
+                !detailsClass.enrolledUserIds.includes(currentUser.id) &&
+                detailsClass.isFree && (
+                  <button
+                    type="button"
+                    disabled={
+                      isProcessingAction ||
+                      (detailsClass.enrolledCount ?? detailsClass.enrolledUserIds.length) >=
+                        detailsClass.capacity
+                    }
+                    onClick={() => handleEnrollClick(detailsClass)}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    Enroll Now (Free)
+                  </button>
+                )}
+
+              <button
+                type="button"
+                onClick={() => setDetailsClass(null)}
+                className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Payment Checkout Modal for Paid Classes */}
-      {payingSession && (
-        <PaymentModal
-          session={payingSession}
-          isOpen={!!payingSession}
-          onSuccess={() => setPayingSession(null)}
-          onClose={() => setPayingSession(null)}
-        />
+      {/* Cancel Class Reason Modal */}
+      {cancellingClass && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+              Cancel Live Class
+            </h3>
+            <p className="text-xs text-neutral-500 mt-1">
+              Provide a reason for cancelling &ldquo;{cancellingClass.title}&rdquo;. Enrolled students will be notified.
+            </p>
+            <form onSubmit={handleConfirmCancel} className="mt-4 space-y-4">
+              <textarea
+                required
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Schedule conflict, rescheduling for next week."
+                className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white resize-none"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCancellingClass(null)}
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+                >
+                  Keep Class
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingAction}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg disabled:opacity-50 cursor-pointer"
+                >
+                  {isProcessingAction ? 'Cancelling...' : 'Confirm Cancel'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

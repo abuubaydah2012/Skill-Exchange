@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getClasses,
+  getClassById,
   createClass,
   updateClass,
   enrollInClass,
@@ -14,6 +15,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', getClasses);
+router.get('/:id', getClassById);
 router.post('/', createClass);
 router.put('/:id', updateClass);
 router.post('/:id/enroll', enrollInClass);

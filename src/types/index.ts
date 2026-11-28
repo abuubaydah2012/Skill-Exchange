@@ -30,7 +30,7 @@ export interface IdentityVerificationRecord {
 
 export type AppointmentStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled' | 'Completed';
 
-export type SessionFormat = '1-on-1 Video' | 'Interactive Workshop' | 'Practice Lab';
+export type SessionFormat = '1-on-1 Video' | 'Interactive Workshop' | 'Masterclass' | 'Practice Lab';
 
 export type PaymentStatus = 'Pending' | 'Completed' | 'Failed' | 'Refunded';
 
@@ -230,10 +230,19 @@ export interface ClassSession {
   capacity: number;
   enrolledCount?: number;
   enrolledUserIds: string[];
+  enrolledStudents?: {
+    id: string;
+    name: string;
+    email?: string;
+    avatarUrl?: string;
+    avatarBgColor?: string;
+  }[];
   isFree: boolean;
   price: number;
   format: SessionFormat;
   meetingLink: string;
+  thumbnailUrl?: string;
+  instructions?: string;
   status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
   cancellationReason?: string;
 }

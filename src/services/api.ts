@@ -520,14 +520,22 @@ export const categoryApi = {
 // 9. Classes & Workshops API
 // -----------------------------------------------------------------------------
 export const classApi = {
-  getClasses: (params?: { scope?: 'my_sessions' | 'my_enrollments' | 'public' | 'teacher_hosted'; tab?: 'upcoming' | 'past' | 'all'; pricing?: 'all' | 'free' | 'paid' }) => {
+  getClasses: (params?: {
+    scope?: 'my_sessions' | 'my_enrollments' | 'public' | 'teacher_hosted';
+    tab?: 'upcoming' | 'past' | 'all';
+    pricing?: 'all' | 'free' | 'paid';
+    category?: string;
+  }) => {
     const query = new URLSearchParams();
     if (params?.scope) query.set('scope', params.scope);
     if (params?.tab) query.set('tab', params.tab);
     if (params?.pricing) query.set('pricing', params.pricing);
+    if (params?.category && params.category !== 'All') query.set('category', params.category);
     const qs = query.toString();
     return request<any[]>(`/classes${qs ? `?${qs}` : ''}`);
   },
+
+  getClassById: (id: string) => request<any>(`/classes/${id}`),
 
   createClass: (payload: any) =>
     request<any>('/classes', {

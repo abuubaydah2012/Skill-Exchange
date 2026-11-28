@@ -139,11 +139,11 @@ interface AppContextType {
   updateAppointmentStatus: (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => Promise<Appointment | undefined>;
 
   // Classes & Sessions
-  createClass: (cls: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>) => ClassSession;
-  updateClass: (classId: string, updated: Partial<ClassSession>) => void;
-  cancelClass: (classId: string, reason: string) => void;
+  createClass: (cls: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>) => Promise<boolean>;
+  updateClass: (classId: string, updated: Partial<ClassSession>) => Promise<boolean>;
+  cancelClass: (classId: string, reason: string) => Promise<boolean>;
   enrollInClass: (classId: string, paymentMethodLast4?: string) => Promise<boolean>;
-  completeClass: (classId: string) => void;
+  completeClass: (classId: string) => Promise<boolean>;
 
   // Messaging
   sendMessage: (
@@ -872,6 +872,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     };
 
+    const handleClassCreated = (newCls: ClassSession) => {
+      setClasses((prev) => (prev.some((c) => c.id === newCls.id) ? prev : [newCls, ...prev]));
+    };
+
+    const handleClassUpdated = (updatedCls: ClassSession) => {
+      setClasses((prev) =>
+        prev.some((c) => c.id === updatedCls.id)
+          ? prev.map((c) => (c.id === updatedCls.id ? updatedCls : c))
+          : [updatedCls, ...prev]
+      );
+    };
+
+    const handleNotificationReceived = (notif: any) => {
+      const normalized: PlatformNotification = {
+        ...notif,
+        id: notif.id || notif._id,
+        userId: notif.userId?.toString?.() || notif.userId,
+        createdAt: notif.createdAt || new Date().toISOString(),
+      };
+      setNotifications((prev) =>
+        prev.some((n) => n.id === normalized.id) ? prev : [normalized, ...prev]
+      );
+    };
+
     socket.on('message:received', handleMessageReceived);
     socket.on('message:deleted', handleMessageDeleted);
     socket.on('conversation:updated', handleConversationUpdated);
@@ -879,6 +903,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     socket.on('conversation:deleted', handleConversationDeleted);
     socket.on('appointment:received', handleAppointmentReceived);
     socket.on('appointment:updated', handleAppointmentUpdated);
+    socket.on('class:created', handleClassCreated);
+    socket.on('class:updated', handleClassUpdated);
+    socket.on('notification:received', handleNotificationReceived);
 
     return () => {
       socket.off('message:received', handleMessageReceived);
@@ -888,6 +915,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       socket.off('conversation:deleted', handleConversationDeleted);
       socket.off('appointment:received', handleAppointmentReceived);
       socket.off('appointment:updated', handleAppointmentUpdated);
+      socket.off('class:created', handleClassCreated);
+      socket.off('class:updated', handleClassUpdated);
+      socket.off('notification:received', handleNotificationReceived);
     };
   }, [currentUser?.id, refreshConversations]);
 
@@ -1874,61 +1904,102 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Classes
   const createClass = useCallback(
-    (clsData: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>): ClassSession => {
-      if (!currentUser) throw new Error('Must be logged in');
-      const tempId = 'cls-' + Math.random().toString(36).substring(2, 9);
+    async (
+      clsData: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>
+    ): Promise<boolean> => {
+      if (!currentUser) return false;
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token) {
+        try {
+          const res = await classApi.createClass(clsData);
+          if (!res.success || !res.data) {
+            addToast('error', 'Creation Failed', res.message || 'Could not create live class.');
+            return false;
+          }
+          const created: ClassSession = res.data;
+          setClasses((prev) => (prev.some((c) => c.id === created.id) ? prev : [created, ...prev]));
+          addToast('success', 'Live Class Published', `"${created.title}" is now open for student enrollment!`);
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Creation Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       const newClass: ClassSession = {
         ...clsData,
-        id: tempId,
+        id: 'cls-' + Math.random().toString(36).substring(2, 9),
         teacherId: currentUser.id,
         teacherName: currentUser.name,
         status: 'Scheduled',
         enrolledCount: 0,
         enrolledUserIds: [],
-        meetingLink: `https://meet.skillexchange.io/room/${Math.random().toString(36).substring(2, 10)}`,
       };
       setClasses((prev) => [newClass, ...prev]);
-
-      classApi
-        .createClass(clsData)
-        .then((res) => {
-          if (res.success && res.data) {
-            setClasses((prev) => prev.map((c) => (c.id === tempId ? res.data : c)));
-          }
-        })
-        .catch(() => {});
-
       addToast('success', 'Class Created', `"${clsData.title}" is now open for enrollment!`);
-      return newClass;
+      return true;
     },
     [currentUser, addToast]
   );
 
   const updateClass = useCallback(
-    (classId: string, updated: Partial<ClassSession>) => {
+    async (classId: string, updated: Partial<ClassSession>): Promise<boolean> => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !classId.startsWith('cls-')) {
+        try {
+          const res = await classApi.updateClass(classId, updated);
+          if (!res.success || !res.data) {
+            addToast('error', 'Update Failed', res.message || 'Could not update class.');
+            return false;
+          }
+          const saved: ClassSession = res.data;
+          setClasses((prev) => prev.map((c) => (c.id === classId ? saved : c)));
+          addToast('success', 'Class Updated', 'Class details and schedule updated.');
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Update Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...updated } : c)));
-      classApi.updateClass(classId, updated).catch(() => {});
       addToast('success', 'Class Updated', 'Class details have been saved.');
+      return true;
     },
     [addToast]
   );
 
   const cancelClass = useCallback(
-    (classId: string, reason: string) => {
+    async (classId: string, reason: string): Promise<boolean> => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !classId.startsWith('cls-')) {
+        try {
+          const res = await classApi.cancelClass(classId, reason);
+          if (!res.success || !res.data) {
+            addToast('error', 'Cancel Failed', res.message || 'Could not cancel class.');
+            return false;
+          }
+          const saved: ClassSession = res.data;
+          setClasses((prev) => prev.map((c) => (c.id === classId ? saved : c)));
+          addToast('warning', 'Class Cancelled', 'Enrolled students have been notified.');
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Cancel Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       setClasses((prev) =>
-        prev.map((c) => {
-          if (c.id !== classId) return c;
-          return { ...c, status: 'Cancelled', cancellationReason: reason };
-        })
+        prev.map((c) => (c.id === classId ? { ...c, status: 'Cancelled', cancellationReason: reason } : c))
       );
-      classApi.cancelClass(classId, reason).catch(() => {});
       addToast('warning', 'Class Cancelled', 'Enrolled participants have been alerted.');
+      return true;
     },
     [addToast]
   );
 
   const enrollInClass = useCallback(
-    async (classId: string, paymentMethodLast4: string = '4242'): Promise<boolean> => {
+    async (classId: string, _paymentMethodLast4: string = '4242'): Promise<boolean> => {
       if (!currentUser) return false;
       const targetClass = classes.find((c) => c.id === classId);
       if (!targetClass) return false;
@@ -1944,46 +2015,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return false;
       }
 
-      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
       if (token) {
         try {
           const res = await classApi.enrollInClass(classId);
           if (res.success && res.data) {
             const updatedCls: ClassSession = res.data;
             setClasses((prev) => prev.map((c) => (c.id === classId ? updatedCls : c)));
-          } else if (!res.success) {
-            addToast('error', 'Enrollment Failed', res.message || 'Could not enroll in workshop.');
-            return false;
+            addToast('success', 'Enrolled Successfully!', `You are registered for "${targetClass.title}".`);
+            return true;
           }
-        } catch {
-          // Offline fallback
+          addToast('error', 'Enrollment Unavailable', res.message || 'Could not enroll in workshop.');
+          return false;
+        } catch (err: any) {
+          addToast('error', 'Enrollment Failed', err?.message || 'Unable to connect to server.');
+          return false;
         }
-      }
-
-      // If paid, create payment record
-      if (!targetClass.isFree && targetClass.price > 0) {
-        const paymentTx: PaymentTransaction = {
-          id: 'tx-' + Math.random().toString(36).substring(2, 9),
-          userId: currentUser.id,
-          userName: currentUser.name,
-          sessionId: targetClass.id,
-          itemTitle: targetClass.title,
-          amount: targetClass.price,
-          currency: 'USD',
-          paymentMethodLast4,
-          status: 'Completed',
-          refundStatus: 'None',
-          createdAt: new Date().toISOString(),
-        };
-        setPayments((prev) => [paymentTx, ...prev]);
-
-        setUsers((prevUsers) =>
-          prevUsers.map((u) =>
-            u.id === targetClass.teacherId
-              ? { ...u, totalEarnings: u.totalEarnings + targetClass.price }
-              : u
-          )
-        );
       }
 
       setClasses((prev) =>
@@ -2005,12 +2052,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const completeClass = useCallback(
-    (classId: string) => {
+    async (classId: string): Promise<boolean> => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !classId.startsWith('cls-')) {
+        try {
+          const res = await classApi.completeClass(classId);
+          if (!res.success || !res.data) {
+            addToast('error', 'Action Failed', res.message || 'Could not mark class completed.');
+            return false;
+          }
+          const saved: ClassSession = res.data;
+          setClasses((prev) => prev.map((c) => (c.id === classId ? saved : c)));
+          addToast('success', 'Session Completed', 'The class has been moved to Past Archive.');
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Action Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       setClasses((prev) =>
         prev.map((c) => (c.id === classId ? { ...c, status: 'Completed' } : c))
       );
-      classApi.completeClass(classId).catch(() => {});
-      addToast('success', 'Session Completed', 'The class has concluded. Participants may now review.');
+      addToast('success', 'Session Completed', 'The class has concluded.');
+      return true;
     },
     [addToast]
   );

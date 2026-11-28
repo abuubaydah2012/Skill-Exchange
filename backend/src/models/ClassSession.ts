@@ -14,8 +14,10 @@ export interface IClassSession extends Document {
   enrolledUserIds: Types.ObjectId[];
   isFree: boolean;
   price: number;
-  format: '1-on-1 Video' | 'Interactive Workshop' | 'Practice Lab';
+  format: '1-on-1 Video' | 'Interactive Workshop' | 'Masterclass' | 'Practice Lab';
   meetingLink: string;
+  thumbnailUrl?: string;
+  instructions?: string;
   status: 'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled';
   cancellationReason?: string;
   createdAt: Date;
@@ -91,12 +93,26 @@ const ClassSessionSchema = new Schema<IClassSession>(
     },
     format: {
       type: String,
-      enum: ['1-on-1 Video', 'Interactive Workshop', 'Practice Lab'],
+      enum: ['1-on-1 Video', 'Interactive Workshop', 'Masterclass', 'Practice Lab'],
       default: 'Interactive Workshop',
     },
     meetingLink: {
       type: String,
       default: '',
+      trim: true,
+      maxlength: 500,
+    },
+    thumbnailUrl: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 1000,
+    },
+    instructions: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 2000,
     },
     status: {
       type: String,
