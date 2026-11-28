@@ -567,7 +567,40 @@ export const classApi = {
 };
 
 // -----------------------------------------------------------------------------
-// 10. Health & System Diagnostic API
+// 10. Demo Payments & Refunds API
+// -----------------------------------------------------------------------------
+export const paymentApi = {
+  getPayments: () => request<any[]>('/payments'),
+
+  demoCheckout: (payload: {
+    classId: string;
+    paymentMethod: 'Visa' | 'Mastercard' | 'PayPal' | 'bKash' | 'Nagad';
+    demoOutcome: 'Success' | 'Failed' | 'Cancelled';
+  }) =>
+    request<{ transaction: any; updatedClass?: any }>('/payments/demo-checkout', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  requestRefund: (id: string, reason: string, explanation?: string) =>
+    request<any>(`/payments/${id}/refund`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, explanation }),
+    }),
+
+  reviewRefund: (
+    id: string,
+    decision: 'Under Review' | 'Approved' | 'Rejected' | 'Refunded',
+    adminResponse?: string
+  ) =>
+    request<any>(`/payments/${id}/refund/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ decision, adminResponse }),
+    }),
+};
+
+// -----------------------------------------------------------------------------
+// 11. Health & System Diagnostic API
 // -----------------------------------------------------------------------------
 export const healthApi = {
   checkHealth: () => request<any>('/health'),

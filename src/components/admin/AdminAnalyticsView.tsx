@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StatCard } from '../dashboard/StatCard';
 import { Badge } from '../common/Badge';
@@ -21,12 +21,15 @@ import {
 
 export const AdminAnalyticsView: React.FC = () => {
   const { users, classes, payments, reviewRefundDecision } = useApp();
+  const [adminResponses, setAdminResponses] = useState<Record<string, string>>({});
 
   const totalVolume = payments
     .filter((p) => p.status === 'Completed')
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const pendingRefunds = payments.filter((p) => p.refundStatus === 'Requested');
+  const pendingRefunds = payments.filter(
+    (p) => p.refundStatus === 'Requested' || p.refundStatus === 'Under Review'
+  );
   const processedRefunds = payments.filter((p) => p.refundStatus === 'Refunded');
 
   // Category counts
@@ -96,41 +99,72 @@ export const AdminAnalyticsView: React.FC = () => {
             {pendingRefunds.map((tx) => (
               <div
                 key={tx.id}
-                className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
+                className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/20 flex flex-col gap-3 text-xs"
               >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <strong className="font-semibold text-neutral-900 dark:text-white">
-                      Tx #{tx.id} · {tx.userName}
-                    </strong>
-                    <Badge variant="warning">Refund Requested</Badge>
-                  </div>
-                  <p className="text-neutral-700 dark:text-neutral-300 mt-1">
-                    Item: <strong>{tx.itemTitle}</strong> (${tx.amount.toFixed(2)} USD)
-                  </p>
-                  {tx.refundReason && (
-                    <p className="text-neutral-500 italic mt-0.5">
-                      Reason: &ldquo;{tx.refundReason}&rdquo;
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <strong className="font-semibold text-neutral-900 dark:text-white">
+                        {tx.transactionId || `Tx #${tx.id}`} · {tx.studentName || tx.userName}
+                      </strong>
+                      <Badge variant="warning">{tx.refundStatus}</Badge>
+                      {tx.paymentMethod && <Badge variant="neutral">{tx.paymentMethod} (Demo)</Badge>}
+                    </div>
+                    <p className="text-neutral-700 dark:text-neutral-300 mt-1">
+                      Item: <strong>{tx.itemTitle}</strong> (${tx.amount.toFixed(2)} USD)
                     </p>
-                  )}
+                    {tx.refundReason && (
+                      <p className="text-neutral-600 dark:text-neutral-400 italic mt-0.5">
+                        Reason: &ldquo;{tx.refundReason}&rdquo;
+                        {tx.refundExplanation ? ` — ${tx.refundExplanation}` : ''}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reviewRefundDecision(tx.id, 'Refunded', adminResponses[tx.id] || '')
+                      }
+                      className="px-3.5 py-1.5 font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Approve &amp; Process Refund</span>
+                    </button>
+                    {tx.refundStatus === 'Requested' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          reviewRefundDecision(tx.id, 'Under Review', adminResponses[tx.id] || '')
+                        }
+                        className="px-3 py-1.5 font-medium text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 rounded-lg cursor-pointer"
+                      >
+                        Mark Under Review
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reviewRefundDecision(tx.id, 'Rejected', adminResponses[tx.id] || '')
+                      }
+                      className="px-3.5 py-1.5 font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Reject Claim</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => reviewRefundDecision(tx.id, 'Approved')}
-                    className="px-3.5 py-1.5 font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Approve & Refund</span>
-                  </button>
-                  <button
-                    onClick={() => reviewRefundDecision(tx.id, 'Rejected')}
-                    className="px-3.5 py-1.5 font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900 flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>Reject Claim</span>
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  value={adminResponses[tx.id] || ''}
+                  onChange={(e) =>
+                    setAdminResponses((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                  }
+                  placeholder="Optional admin response note to student..."
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white"
+                />
               </div>
             ))}
           </div>

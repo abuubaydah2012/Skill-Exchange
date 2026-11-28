@@ -32,9 +32,18 @@ export type AppointmentStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled
 
 export type SessionFormat = '1-on-1 Video' | 'Interactive Workshop' | 'Masterclass' | 'Practice Lab';
 
-export type PaymentStatus = 'Pending' | 'Completed' | 'Failed' | 'Refunded';
+export type DemoPaymentMethod = 'Visa' | 'Mastercard' | 'PayPal' | 'bKash' | 'Nagad';
 
-export type RefundStatus = 'None' | 'Requested' | 'Under Review' | 'Approved' | 'Rejected' | 'Refunded';
+export type PaymentStatus = 'Pending' | 'Completed' | 'Failed' | 'Cancelled' | 'Refunded';
+
+export type RefundStatus =
+  | 'None'
+  | 'Requested'
+  | 'Under Review'
+  | 'Approved'
+  | 'Rejected'
+  | 'Processing'
+  | 'Refunded';
 
 export type ComplaintCategory = 'Harassment' | 'No-Show' | 'Inappropriate Content' | 'Fraud / Payment Issue' | 'Poor Quality' | 'Other';
 
@@ -295,19 +304,32 @@ export interface Review {
 
 export interface PaymentTransaction {
   id: string;
+  transactionId?: string;
+  orderId?: string;
   userId: string;
   userName: string;
+  studentId?: string;
+  studentName?: string;
+  teacherId?: string;
+  teacherName?: string;
   sessionId?: string;
+  classId?: string;
   appointmentId?: string;
   itemTitle: string;
+  itemDescription?: string;
+  paymentMethod?: DemoPaymentMethod;
   amount: number;
   currency: string;
   paymentMethodLast4: string;
   status: PaymentStatus;
+  isDemo?: boolean;
   refundStatus: RefundStatus;
   refundReason?: string;
+  refundExplanation?: string;
+  adminResponse?: string;
   createdAt: string;
   refundRequestedAt?: string;
+  refundProcessedAt?: string;
 }
 
 export interface Complaint {

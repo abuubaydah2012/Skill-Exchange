@@ -16,6 +16,7 @@ import {
   Conversation,
   Review,
   PaymentTransaction,
+  DemoPaymentMethod,
   RefundStatus,
   Complaint,
   ComplaintStatus,
@@ -55,6 +56,7 @@ import {
   certificateApi,
   categoryApi,
   classApi,
+  paymentApi,
   TOKEN_STORAGE_KEY,
 } from '../services/api';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -171,8 +173,17 @@ interface AppContextType {
 
   // Payments & Refunds
   processDemoPayment: (payment: Omit<PaymentTransaction, 'id' | 'createdAt' | 'refundStatus'>) => Promise<{ success: boolean; error?: string }>;
-  requestRefund: (paymentId: string, reason: string) => void;
-  reviewRefundDecision: (paymentId: string, decision: 'Approved' | 'Rejected') => void;
+  processDemoCheckout: (
+    classId: string,
+    paymentMethod: DemoPaymentMethod,
+    demoOutcome: 'Success' | 'Failed' | 'Cancelled'
+  ) => Promise<{ success: boolean; transaction?: PaymentTransaction; message?: string }>;
+  requestRefund: (paymentId: string, reason: string, explanation?: string) => Promise<boolean>;
+  reviewRefundDecision: (
+    paymentId: string,
+    decision: 'Under Review' | 'Approved' | 'Rejected' | 'Refunded',
+    adminResponse?: string
+  ) => Promise<boolean>;
 
   // Complaints
   submitComplaint: (complaint: Omit<Complaint, 'id' | 'submittedAt' | 'status'>) => void;
@@ -516,12 +527,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) return;
 
     try {
-      const [aptsRes, convsRes, usersRes, myReviewsRes, classesRes] = await Promise.all([
+      const [aptsRes, convsRes, usersRes, myReviewsRes, classesRes, paymentsRes] = await Promise.all([
         appointmentApi.getAppointments(),
         messageApi.getConversations(),
         userApi.getUsers(),
         reviewApi.getMyReviews(),
         classApi.getClasses({ scope: 'public' }),
+        paymentApi.getPayments(),
       ]);
 
       if (aptsRes.success && Array.isArray(aptsRes.data)) {
@@ -534,6 +546,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (classesRes.success && Array.isArray(classesRes.data)) {
         setClasses(classesRes.data);
+      }
+
+      if (paymentsRes.success && Array.isArray(paymentsRes.data)) {
+        setPayments(paymentsRes.data);
       }
 
       if (convsRes.success && Array.isArray(convsRes.data)) {
@@ -2462,8 +2478,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [addToast]
   );
 
+  const processDemoCheckout = useCallback(
+    async (
+      classId: string,
+      paymentMethod: DemoPaymentMethod,
+      demoOutcome: 'Success' | 'Failed' | 'Cancelled'
+    ): Promise<{ success: boolean; transaction?: PaymentTransaction; message?: string }> => {
+      if (!currentUser) return { success: false, message: 'Please sign in first.' };
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token) {
+        try {
+          const res = await paymentApi.demoCheckout({ classId, paymentMethod, demoOutcome });
+          if (res.success && res.data?.transaction) {
+            const tx: PaymentTransaction = res.data.transaction;
+            setPayments((prev) => [tx, ...prev]);
+
+            if (res.data.updatedClass) {
+              const updatedCls: ClassSession = res.data.updatedClass;
+              setClasses((prev) => prev.map((c) => (c.id === updatedCls.id ? updatedCls : c)));
+            }
+
+            if (tx.status === 'Completed') {
+              addToast('success', 'Demo Payment Successful', `Enrolled via ${paymentMethod} (${tx.transactionId}).`);
+            } else if (tx.status === 'Failed') {
+              addToast('error', 'Demo Payment Failed', 'Simulated payment failed. No enrollment was granted.');
+            } else {
+              addToast('warning', 'Demo Payment Cancelled', 'Simulated payment cancelled. No enrollment was granted.');
+            }
+
+            return {
+              success: tx.status === 'Completed',
+              transaction: tx,
+              message: res.message,
+            };
+          }
+          return { success: false, message: res.message || 'Demo checkout failed.' };
+        } catch (err: any) {
+          return { success: false, message: err?.message || 'Could not reach payment server.' };
+        }
+      }
+
+      return { success: false, message: 'Authentication required for demo checkout.' };
+    },
+    [currentUser, addToast]
+  );
+
   const requestRefund = useCallback(
-    (paymentId: string, reason: string) => {
+    async (paymentId: string, reason: string, explanation?: string): Promise<boolean> => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !paymentId.startsWith('tx-')) {
+        try {
+          const res = await paymentApi.requestRefund(paymentId, reason, explanation);
+          if (res.success && res.data) {
+            const updatedTx: PaymentTransaction = res.data;
+            setPayments((prev) => prev.map((tx) => (tx.id === paymentId ? updatedTx : tx)));
+            addToast('info', 'Demo Refund Requested', 'Your simulated refund request has been submitted for Admin review.');
+            return true;
+          }
+          addToast('error', 'Refund Request Failed', res.message || 'Could not submit refund request.');
+          return false;
+        } catch (err: any) {
+          addToast('error', 'Refund Request Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       setPayments((prev) =>
         prev.map((tx) =>
           tx.id === paymentId
@@ -2471,58 +2551,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ...tx,
                 refundStatus: 'Requested',
                 refundReason: reason,
+                refundExplanation: explanation,
                 refundRequestedAt: new Date().toISOString(),
               }
             : tx
         )
       );
-
-      // Alert admin
-      const adminNotif: PlatformNotification = {
-        id: 'notif-' + Math.random().toString(36).substring(2, 9),
-        userId: 'usr-admin',
-        title: 'New Refund Request',
-        message: `User requested refund for transaction #${paymentId}. Reason: "${reason}".`,
-        category: 'Payments',
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        actionUrl: '/admin/analytics',
-      };
-      setNotifications((prev) => [adminNotif, ...prev]);
-
       addToast('info', 'Refund Requested', 'Your request has been submitted for administrative review.');
+      return true;
     },
     [addToast]
   );
 
   const reviewRefundDecision = useCallback(
-    (paymentId: string, decision: 'Approved' | 'Rejected') => {
+    async (
+      paymentId: string,
+      decision: 'Under Review' | 'Approved' | 'Rejected' | 'Refunded',
+      adminResponse?: string
+    ): Promise<boolean> => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !paymentId.startsWith('tx-')) {
+        try {
+          const res = await paymentApi.reviewRefund(paymentId, decision, adminResponse);
+          if (res.success && res.data) {
+            const updatedTx: PaymentTransaction = res.data;
+            setPayments((prev) => prev.map((tx) => (tx.id === paymentId ? updatedTx : tx)));
+            if (updatedTx.status === 'Refunded' && updatedTx.classId) {
+              setClasses((prev) =>
+                prev.map((c) =>
+                  c.id === updatedTx.classId
+                    ? {
+                        ...c,
+                        enrolledUserIds: c.enrolledUserIds.filter((id) => id !== updatedTx.studentId),
+                        enrolledCount: Math.max(0, (c.enrolledCount ?? c.enrolledUserIds.length) - 1),
+                      }
+                    : c
+                )
+              );
+            }
+            addToast('success', 'Demo Refund Updated', `Refund status updated to ${updatedTx.refundStatus}.`);
+            return true;
+          }
+          addToast('error', 'Review Failed', res.message || 'Could not update refund status.');
+          return false;
+        } catch (err: any) {
+          addToast('error', 'Review Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       setPayments((prev) =>
         prev.map((tx) => {
           if (tx.id !== paymentId) return tx;
-          const status = decision === 'Approved' ? 'Refunded' : tx.status;
-          const refundStatus: RefundStatus = decision === 'Approved' ? 'Refunded' : 'Rejected';
-
-          // Notify user
-          const notif: PlatformNotification = {
-            id: 'notif-' + Math.random().toString(36).substring(2, 9),
-            userId: tx.userId,
-            title: `Refund Request ${decision}`,
-            message:
-              decision === 'Approved'
-                ? `Your refund of $${tx.amount.toFixed(2)} for "${tx.itemTitle}" was processed back to your card.`
-                : `Your refund request for "${tx.itemTitle}" was reviewed and rejected.`,
-            category: 'Payments',
-            isRead: false,
-            createdAt: new Date().toISOString(),
-            actionUrl: '/payments',
+          const isRefunded = decision === 'Approved' || decision === 'Refunded';
+          return {
+            ...tx,
+            status: isRefunded ? 'Refunded' : tx.status,
+            refundStatus: isRefunded ? 'Refunded' : decision,
+            adminResponse,
           };
-          setNotifications((prevNotifs) => [notif, ...prevNotifs]);
-
-          return { ...tx, status, refundStatus };
         })
       );
       addToast('success', 'Refund Decision Saved', `Refund #${paymentId} marked as ${decision}.`);
+      return true;
     },
     [addToast]
   );
@@ -2802,6 +2893,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         moderateReview,
 
         processDemoPayment,
+        processDemoCheckout,
         requestRefund,
         reviewRefundDecision,
 

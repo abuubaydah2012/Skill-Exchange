@@ -19,6 +19,7 @@ import certificateRoutes from './routes/certificateRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import classRoutes from './routes/classRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
 import { ensureDefaultCategoriesAndMigrateSkills } from './utils/categorySeed.js';
 import { ClassSession } from './models/ClassSession.js';
 import { User } from './models/User.js';
@@ -106,6 +107,7 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/classes', classRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // 6. 404 & Centralized Error Handlers
 app.use(notFoundHandler);

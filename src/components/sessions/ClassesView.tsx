@@ -9,6 +9,7 @@ import { useApp } from '../../context/AppContext';
 import { classApi } from '../../services/api';
 import { ClassSession } from '../../types';
 import { ClassModal } from './ClassModal';
+import { PaymentModal } from '../payments/PaymentModal';
 import { Badge } from '../common/Badge';
 import { Avatar } from '../common/Avatar';
 import {
@@ -49,6 +50,7 @@ export const ClassesView: React.FC = () => {
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassSession | undefined>(undefined);
   const [detailsClass, setDetailsClass] = useState<ClassSession | null>(null);
+  const [payingSession, setPayingSession] = useState<ClassSession | null>(null);
   const [cancellingClass, setCancellingClass] = useState<ClassSession | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -170,12 +172,7 @@ export const ClassesView: React.FC = () => {
 
   const handleEnrollClick = async (cls: ClassSession) => {
     if (!cls.isFree && cls.price > 0) {
-      addToast(
-        'info',
-        'Payment Integration Required',
-        'Online payment processing is not yet available for paid classes.'
-      );
-      setDetailsClass(cls);
+      setPayingSession(cls);
       return;
     }
     setIsProcessingAction(true);
@@ -643,11 +640,21 @@ export const ClassesView: React.FC = () => {
               detailsClass.price > 0 &&
               detailsClass.teacherId !== currentUser.id &&
               !detailsClass.enrolledUserIds.includes(currentUser.id) && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="p-3 rounded-xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-200 flex items-center justify-between gap-3">
                   <span>
-                    This is a paid class (${detailsClass.price} USD). Online payment integration is not yet available, so paid checkout is currently disabled.
+                    Paid Workshop (${detailsClass.price.toFixed(2)} USD) — Simulated Demo Checkout available.
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = detailsClass;
+                      setDetailsClass(null);
+                      setPayingSession(target);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg cursor-pointer shrink-0"
+                  >
+                    Enroll via Demo Pay
+                  </button>
                 </div>
               )}
 
@@ -812,6 +819,34 @@ export const ClassesView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Demo Payment Checkout Modal */}
+      {payingSession && (
+        <PaymentModal
+          session={payingSession}
+          isOpen={!!payingSession}
+          onSuccess={() => {
+            // Refresh scoped classes after successful demo payment
+            classApi
+              .getClasses({
+                scope:
+                  filterType === 'all'
+                    ? 'public'
+                    : filterType === 'my_enrollments'
+                    ? 'my_enrollments'
+                    : 'my_sessions',
+                tab: activeTab,
+              })
+              .then((res) => {
+                if (res.success && Array.isArray(res.data)) {
+                  setBackendScopedClasses(res.data);
+                }
+              })
+              .catch(() => {});
+          }}
+          onClose={() => setPayingSession(null)}
+        />
       )}
     </div>
   );
