@@ -425,8 +425,8 @@ export const SkillsView: React.FC = () => {
       {/* Skill Modal */}
       {isSkillModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-            <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
+          <div className="w-full max-w-lg my-auto bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-start justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
               <h3 className="text-base font-bold text-neutral-900 dark:text-white">
                 {editingSkill ? 'Edit Teaching Skill' : 'Add New Teaching Skill'}
               </h3>
@@ -439,14 +439,13 @@ export const SkillsView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSkillSubmit} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-                {formError && (
-                  <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{formError}</span>
-                  </div>
-                )}
+            <form onSubmit={handleSkillSubmit} className="mt-4 space-y-4">
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
                   Skill Name
@@ -586,7 +585,7 @@ export const SkillsView: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     max={40}
                     value={yearsExperience}
                     onChange={(e) => setYearsExperience(Number(e.target.value))}
@@ -645,9 +644,7 @@ export const SkillsView: React.FC = () => {
                 />
               </div>
 
-              </div>
-
-              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">
                 <button
                   type="button"
                   disabled={isSavingSkill}
