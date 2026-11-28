@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { BrandLogo } from '../common/BrandLogo';
 import { OtpModal, ForgotPasswordModal, LockoutModal } from './AuthModals';
 import { KeyRound, ShieldAlert, ArrowRight, UserCheck, Sparkles, Check, Sun, Moon } from 'lucide-react';
 import { UserRole } from '../../types';
@@ -102,12 +103,10 @@ export const LoginForm: React.FC = () => {
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="w-12 h-12 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center font-bold text-xl tracking-tight shadow-md">
-            SX
-          </div>
+          <BrandLogo size="lg" />
         </div>
-        <h2 className="mt-4 text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
-          Sign in to Skill Exchange
+        <h2 className="mt-5 text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+          Sign in to your account
         </h2>
         <p className="mt-1 text-center text-xs text-neutral-500 dark:text-neutral-400">
           Learn new skills, teach what you love, and grow with peers.

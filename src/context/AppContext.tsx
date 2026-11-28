@@ -124,9 +124,9 @@ interface AppContextType {
 
   // Profile & Skills
   updateProfile: (updated: Partial<UserProfile>) => void;
-  addSkill: (skill: Omit<UserSkill, 'id'>) => void;
-  editSkill: (skillId: string, updated: Partial<UserSkill>) => void;
-  deleteSkill: (skillId: string) => void;
+  addSkill: (skill: Omit<UserSkill, 'id'>) => Promise<boolean>;
+  editSkill: (skillId: string, updated: Partial<UserSkill>) => Promise<boolean>;
+  deleteSkill: (skillId: string) => Promise<boolean>;
   addLearningInterest: (interest: string) => void;
   removeLearningInterest: (interest: string) => void;
 
@@ -1531,56 +1531,128 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const addSkill = useCallback(
-    (skillData: Omit<UserSkill, 'id'>) => {
-      if (!currentUser) return;
+    async (skillData: Omit<UserSkill, 'id'>): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token) {
+        try {
+          const res = await skillApi.createSkill({
+            name: skillData.name,
+            category: skillData.category,
+            subcategory: skillData.subcategory,
+            categoryId: skillData.categoryId,
+            subcategoryId: skillData.subcategoryId,
+            proficiency: skillData.proficiency,
+            description: skillData.description,
+            yearsExperience: skillData.yearsExperience,
+            freeSwapAvailable: skillData.freeSwapAvailable,
+            paidLessonAvailable: skillData.paidLessonAvailable,
+            hourlyPrice: skillData.paidLessonAvailable ? skillData.hourlyPrice : 0,
+            availabilitySchedule: skillData.availabilitySchedule,
+          });
+
+          if (!res.success || !res.data) {
+            addToast('error', 'Save Failed', res.message || 'Could not save teaching skill to database.');
+            return false;
+          }
+
+          const savedSkill: UserSkill = {
+            ...skillData,
+            ...res.data,
+            id: res.data.id || res.data._id,
+          };
+          const updatedSkills = [...currentUser.teachingSkills, savedSkill];
+          const merged = { ...currentUser, teachingSkills: updatedSkills };
+          setCurrentUser(merged);
+          setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? merged : u)));
+          addToast('success', 'Skill Saved', `"${savedSkill.name}" has been saved to your teaching profile.`);
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Save Failed', err?.message || 'Unable to connect to server to save skill.');
+          return false;
+        }
+      }
+
       const newSkill: UserSkill = {
         ...skillData,
         id: 'sk-' + Math.random().toString(36).substring(2, 9),
       };
       const updatedSkills = [...currentUser.teachingSkills, newSkill];
       updateProfile({ teachingSkills: updatedSkills });
-      // Sync with MongoDB backend if available
-      skillApi
-        .createSkill({
-          name: skillData.name,
-          category: skillData.category,
-          subcategory: skillData.subcategory,
-          categoryId: skillData.categoryId,
-          subcategoryId: skillData.subcategoryId,
-          proficiency: skillData.proficiency,
-          description: skillData.description,
-          yearsExperience: skillData.yearsExperience,
-          freeSwapAvailable: skillData.freeSwapAvailable,
-          paidLessonAvailable: skillData.paidLessonAvailable,
-          hourlyPrice: skillData.hourlyPrice,
-          availabilitySchedule: skillData.availabilitySchedule,
-        })
-        .catch(() => {});
       addToast('success', 'Skill Added', `Added "${skillData.name}" to your teaching repertoire.`);
+      return true;
     },
     [currentUser, updateProfile, addToast]
   );
 
   const editSkill = useCallback(
-    (skillId: string, updated: Partial<UserSkill>) => {
-      if (!currentUser) return;
+    async (skillId: string, updated: Partial<UserSkill>): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !skillId.startsWith('sk-')) {
+        try {
+          const res = await skillApi.updateSkill(skillId, updated);
+          if (!res.success || !res.data) {
+            addToast('error', 'Update Failed', res.message || 'Could not update teaching skill.');
+            return false;
+          }
+
+          const savedSkill: UserSkill = {
+            ...res.data,
+            id: res.data.id || res.data._id || skillId,
+          };
+          const updatedSkills = currentUser.teachingSkills.map((s) =>
+            s.id === skillId ? { ...s, ...savedSkill } : s
+          );
+          const merged = { ...currentUser, teachingSkills: updatedSkills };
+          setCurrentUser(merged);
+          setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? merged : u)));
+          addToast('success', 'Skill Updated', 'Changes saved to your teaching profile.');
+          return true;
+        } catch (err: any) {
+          addToast('error', 'Update Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       const updatedSkills = currentUser.teachingSkills.map((s) =>
         s.id === skillId ? { ...s, ...updated } : s
       );
       updateProfile({ teachingSkills: updatedSkills });
       addToast('success', 'Skill Updated', 'Skill details updated successfully.');
+      return true;
     },
     [currentUser, updateProfile, addToast]
   );
 
   const deleteSkill = useCallback(
-    (skillId: string) => {
-      if (!currentUser) return;
+    async (skillId: string): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+      if (token && !skillId.startsWith('sk-')) {
+        try {
+          const res = await skillApi.deleteSkill(skillId);
+          if (!res.success) {
+            addToast('error', 'Delete Failed', res.message || 'Could not remove skill.');
+            return false;
+          }
+        } catch (err: any) {
+          addToast('error', 'Delete Failed', err?.message || 'Unable to connect to server.');
+          return false;
+        }
+      }
+
       const updatedSkills = currentUser.teachingSkills.filter((s) => s.id !== skillId);
-      updateProfile({ teachingSkills: updatedSkills });
+      const merged = { ...currentUser, teachingSkills: updatedSkills };
+      setCurrentUser(merged);
+      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? merged : u)));
       addToast('info', 'Skill Deleted', 'The skill was removed from your teaching profile.');
+      return true;
     },
-    [currentUser, updateProfile, addToast]
+    [currentUser, addToast]
   );
 
   const addLearningInterest = useCallback(

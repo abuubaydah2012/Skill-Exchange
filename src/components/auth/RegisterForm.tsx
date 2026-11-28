@@ -6,6 +6,7 @@
 import React, { useState, useId } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { BrandLogo } from '../common/BrandLogo';
 import { authApi } from '../../services/api';
 import { UserRole, IdentityDocumentType, UploadedCertificateDraft } from '../../types';
 import {
@@ -457,20 +458,10 @@ export const RegisterForm: React.FC = () => {
         <div className="text-center">
           <Link
             to="/"
-            className="inline-flex items-center gap-3 group focus:outline-none"
+            className="inline-flex items-center group focus:outline-none transition-opacity hover:opacity-80"
             aria-label="Skill Exchange Home"
           >
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-500 to-emerald-400 text-white flex items-center justify-center shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform duration-300">
-              <Layers className="w-6 h-6 stroke-[2.2]" />
-            </div>
-            <div className="text-left">
-              <span className="text-xl font-extrabold tracking-tight text-neutral-900 dark:text-white block leading-tight">
-                Skill Exchange
-              </span>
-              <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 uppercase tracking-widest block">
-                Knowledge Community
-              </span>
-            </div>
+            <BrandLogo size="lg" />
           </Link>
 
           <h1 className="mt-5 text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900 dark:text-white">

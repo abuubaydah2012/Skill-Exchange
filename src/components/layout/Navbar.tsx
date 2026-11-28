@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { Avatar } from '../common/Avatar';
+import { BrandLogo } from '../common/BrandLogo';
 import {
   Bell,
   Sun,
@@ -140,16 +141,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
           <button
             type="button"
             onClick={() => navigate(currentUser?.role === 'admin' ? '/admin' : '/dashboard')}
-            className="flex items-center gap-2.5 text-left group cursor-pointer"
+            className="flex items-center text-left group cursor-pointer py-1 transition-opacity hover:opacity-80"
+            aria-label="Skill Exchange Home"
           >
-            <div className="w-8 h-8 rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center font-bold text-sm tracking-tight shadow-xs group-hover:scale-105 transition-transform">
-              SX
-            </div>
-            <div className="hidden sm:block">
-              <span className="text-base font-bold tracking-tight text-neutral-900 dark:text-white whitespace-nowrap">
-                Skill Exchange
-              </span>
-            </div>
+            <BrandLogo size="sm" />
           </button>
         </div>
 

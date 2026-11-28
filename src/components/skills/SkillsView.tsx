@@ -61,6 +61,8 @@ export const SkillsView: React.FC = () => {
   const [paidLessonAvailable, setPaidLessonAvailable] = useState(true);
   const [hourlyPrice, setHourlyPrice] = useState(45);
   const [availabilitySchedule, setAvailabilitySchedule] = useState('Weekdays 18:00 - 21:00');
+  const [isSavingSkill, setIsSavingSkill] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // New Learning Interest Input
   const [newInterestInput, setNewInterestInput] = useState('');
@@ -86,6 +88,7 @@ export const SkillsView: React.FC = () => {
 
   const openAddModal = () => {
     setEditingSkill(null);
+    setFormError(null);
     setName('');
     setCategory(categories[0]?.name || '');
     setSubcategory('');
@@ -102,6 +105,7 @@ export const SkillsView: React.FC = () => {
 
   const openEditModal = (skill: UserSkill) => {
     setEditingSkill(skill);
+    setFormError(null);
     setName(skill.name);
     setCategory(skill.category);
     setSubcategory(skill.subcategory || '');
@@ -116,47 +120,76 @@ export const SkillsView: React.FC = () => {
     setIsSkillModalOpen(true);
   };
 
-  const handleSkillSubmit = (e: React.FormEvent) => {
+  const handleSkillSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !category) return;
+    if (isSavingSkill) return;
+
+    setFormError(null);
+    if (!name.trim()) {
+      setFormError('Skill Name is required.');
+      return;
+    }
+    if (!category.trim()) {
+      setFormError('Main Category is required.');
+      return;
+    }
+    if (!description.trim()) {
+      setFormError('Description & Coaching Approach is required.');
+      return;
+    }
+    if (Number.isNaN(yearsExperience) || yearsExperience < 0) {
+      setFormError('Years of Experience must be a valid non-negative number.');
+      return;
+    }
+    if (paidLessonAvailable && (Number.isNaN(hourlyPrice) || hourlyPrice < 0)) {
+      setFormError('Hourly Price must be a valid non-negative number.');
+      return;
+    }
 
     const matchedCat = categories.find((c) => c.name === category);
     const matchedSub = matchedCat?.subcategories.find((s) => s.name === subcategory);
 
-    if (editingSkill) {
-      editSkill(editingSkill.id, {
-        name: name.trim(),
-        category,
-        subcategory: subcategory || '',
-        categoryId: matchedCat?.id,
-        subcategoryId: matchedSub?.id,
-        description: description.trim(),
-        proficiency,
-        yearsExperience,
-        freeSwapAvailable,
-        paidLessonAvailable,
-        hourlyPrice: paidLessonAvailable ? hourlyPrice : 0,
-        availabilitySchedule,
-      });
-    } else {
-      addSkill({
-        name: name.trim(),
-        category,
-        subcategory: subcategory || '',
-        categoryId: matchedCat?.id,
-        subcategoryId: matchedSub?.id,
-        description: description.trim(),
-        proficiency,
-        yearsExperience,
-        freeSwapAvailable,
-        paidLessonAvailable,
-        hourlyPrice: paidLessonAvailable ? hourlyPrice : 0,
-        availabilitySchedule,
-        verificationStatus: 'Pending',
-      });
-    }
+    setIsSavingSkill(true);
+    try {
+      const ok = editingSkill
+        ? await editSkill(editingSkill.id, {
+            name: name.trim(),
+            category,
+            subcategory: subcategory || '',
+            categoryId: matchedCat?.id,
+            subcategoryId: matchedSub?.id,
+            description: description.trim(),
+            proficiency,
+            yearsExperience,
+            freeSwapAvailable,
+            paidLessonAvailable,
+            hourlyPrice: paidLessonAvailable ? hourlyPrice : 0,
+            availabilitySchedule: availabilitySchedule.trim() || 'Flexible schedule',
+          })
+        : await addSkill({
+            name: name.trim(),
+            category,
+            subcategory: subcategory || '',
+            categoryId: matchedCat?.id,
+            subcategoryId: matchedSub?.id,
+            description: description.trim(),
+            proficiency,
+            yearsExperience,
+            freeSwapAvailable,
+            paidLessonAvailable,
+            hourlyPrice: paidLessonAvailable ? hourlyPrice : 0,
+            availabilitySchedule: availabilitySchedule.trim() || 'Flexible schedule',
+            verificationStatus: 'Pending',
+          });
 
-    setIsSkillModalOpen(false);
+      if (ok) {
+        setIsSkillModalOpen(false);
+      } else {
+        setFormError('Could not save skill. Please verify your inputs and try again.');
+      }
+    } finally {
+      setIsSavingSkill(false);
+    }
   };
 
   const handleSuggestSubmit = async (e: React.FormEvent) => {
@@ -391,13 +424,14 @@ export const SkillsView: React.FC = () => {
 
       {/* Skill Modal */}
       {isSkillModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
-            <div className="flex items-start justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
               <h3 className="text-base font-bold text-neutral-900 dark:text-white">
                 {editingSkill ? 'Edit Teaching Skill' : 'Add New Teaching Skill'}
               </h3>
               <button
+                type="button"
                 onClick={() => setIsSkillModalOpen(false)}
                 className="text-neutral-400 hover:text-neutral-600 p-1 cursor-pointer"
               >
@@ -405,7 +439,14 @@ export const SkillsView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSkillSubmit} className="mt-4 space-y-4">
+            <form onSubmit={handleSkillSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                {formError && (
+                  <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{formError}</span>
+                  </div>
+                )}
               <div>
                 <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
                   Skill Name
@@ -545,7 +586,7 @@ export const SkillsView: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     max={40}
                     value={yearsExperience}
                     onChange={(e) => setYearsExperience(Number(e.target.value))}
@@ -604,19 +645,23 @@ export const SkillsView: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+              </div>
+
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
                 <button
                   type="button"
+                  disabled={isSavingSkill}
                   onClick={() => setIsSkillModalOpen(false)}
-                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
+                  disabled={isSavingSkill}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 disabled:opacity-50 transition-colors cursor-pointer"
                 >
-                  {editingSkill ? 'Save Changes' : 'Add Skill'}
+                  {isSavingSkill ? 'Saving...' : editingSkill ? 'Save Changes' : 'Save Skill'}
                 </button>
               </div>
             </form>
