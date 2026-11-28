@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { Appointment } from '../../types';
 import { StatCard } from './StatCard';
+import { DashboardSearchResults } from './DashboardSearchResults';
 import { Avatar } from '../common/Avatar';
 import { Badge } from '../common/Badge';
 import { StarRating } from '../common/StarRating';
@@ -24,6 +26,10 @@ import {
   ArrowRight,
   ShieldCheck,
   ShieldAlert,
+  X,
+  MessageSquare,
+  Calendar,
+  AlertCircle,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
@@ -34,6 +40,9 @@ export const TeacherDashboard: React.FC = () => {
     reviews,
     updateAppointmentStatus,
     refreshAppointments,
+    dashboardSearchQuery,
+    setDashboardSearchQuery,
+    dashboardSearchSubmitCount,
   } = useApp();
   const navigate = useNavigate();
 
@@ -58,6 +67,33 @@ export const TeacherDashboard: React.FC = () => {
 
   // Reviews for teacher
   const teacherReviews = reviews.filter((r) => r.reviewedUserId === currentUser.id);
+
+  // Request action states
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [rejectingAppointment, setRejectingAppointment] = useState<Appointment | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [viewingDetailsAppointment, setViewingDetailsAppointment] = useState<Appointment | null>(null);
+
+  const handleAccept = async (aptId: string) => {
+    try {
+      setProcessingId(aptId);
+      await updateAppointmentStatus(aptId, 'Accepted');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectingAppointment) return;
+    try {
+      setProcessingId(rejectingAppointment.id);
+      await updateAppointmentStatus(rejectingAppointment.id, 'Rejected', rejectionReason.trim());
+      setRejectingAppointment(null);
+      setRejectionReason('');
+    } finally {
+      setProcessingId(null);
+    }
+  };
 
   // Teaching skills count & verification
   const totalSkills = currentUser.teachingSkills.length;
@@ -135,8 +171,17 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Teacher KPI Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* In-Place Dashboard Search Results or Normal Teacher Dashboard Content */}
+      {dashboardSearchQuery.trim().length > 0 ? (
+        <DashboardSearchResults
+          query={dashboardSearchQuery}
+          submitCount={dashboardSearchSubmitCount}
+          onClear={() => setDashboardSearchQuery('')}
+        />
+      ) : (
+        <>
+          {/* Teacher KPI Stat Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Simulated Earnings"
           value={`$${currentUser.totalEarnings.toLocaleString()} USD`}
@@ -195,45 +240,79 @@ export const TeacherDashboard: React.FC = () => {
                 {incomingRequests.map((req) => (
                   <div
                     key={req.id}
-                    className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/50 flex flex-col md:flex-row md:items-start justify-between gap-4 transition-all hover:border-neutral-300 dark:hover:border-neutral-700"
                   >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs text-neutral-500">
-                        <span>{req.requestedDate}</span>
-                        <span>·</span>
-                        <span>{req.startTime} ({req.durationMinutes}m)</span>
-                        <span>·</span>
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                          {req.isFreeSwap ? 'Free Skill Swap' : `$${req.totalCost} USD`}
-                        </span>
-                      </div>
-                      <h4 className="text-xs sm:text-sm font-semibold text-neutral-900 dark:text-white mt-1">
-                        {req.skillName}
-                      </h4>
-                      <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
-                        Student: <strong>{req.learnerName}</strong>
-                        {req.isFreeSwap && req.offeredSwapSkillName && (
-                          <span> (Offering: {req.offeredSwapSkillName})</span>
-                        )}
-                      </p>
-                      {req.message && (
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 italic mt-1 bg-white dark:bg-neutral-900 p-2 rounded border border-neutral-200 dark:border-neutral-800">
-                          &ldquo;{req.message}&rdquo;
+                    <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                      <Avatar
+                        name={req.learnerName}
+                        avatarUrl={req.learnerAvatarUrl}
+                        bgColor={req.learnerAvatarBgColor || '#0284c7'}
+                        size="md"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                          <span className="font-semibold text-neutral-900 dark:text-white">
+                            {req.requestedDate}
+                          </span>
+                          <span>·</span>
+                          <span>{req.startTime} ({req.durationMinutes}m)</span>
+                          <span>·</span>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                            {req.isFreeSwap ? 'Free Skill Swap' : `$${req.totalCost} USD`}
+                          </span>
+                          <span>·</span>
+                          <Badge variant="warning">Pending</Badge>
+                        </div>
+
+                        <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white mt-1">
+                          {req.skillName}
+                        </h4>
+
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+                          Student: <strong>{req.learnerName}</strong>
+                          {req.learnerHeadline ? ` · ${req.learnerHeadline}` : ''}
+                          {req.isFreeSwap && req.offeredSwapSkillName && (
+                            <span className="text-sky-600 dark:text-sky-400 font-medium"> (Offering: {req.offeredSwapSkillName})</span>
+                          )}
                         </p>
-                      )}
+
+                        {req.message && (
+                          <p className="text-xs text-neutral-600 dark:text-neutral-300 italic mt-2 bg-white dark:bg-neutral-900 p-2.5 rounded-lg border border-neutral-200 dark:border-neutral-800 leading-relaxed">
+                            &ldquo;{req.message}&rdquo;
+                          </p>
+                        )}
+
+                        <p className="text-[11px] text-neutral-400 mt-2">
+                          Received on {new Date(req.createdAt).toLocaleDateString()} at {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                       <button
-                        onClick={() => updateAppointmentStatus(req.id, 'Accepted')}
-                        className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                        type="button"
+                        onClick={() => setViewingDetailsAppointment(req)}
+                        className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Accept</span>
+                        Details
                       </button>
                       <button
-                        onClick={() => updateAppointmentStatus(req.id, 'Rejected')}
-                        className="px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                        type="button"
+                        disabled={processingId === req.id}
+                        onClick={() => handleAccept(req.id)}
+                        className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{processingId === req.id ? 'Accepting...' : 'Accept'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={processingId === req.id}
+                        onClick={() => {
+                          setRejectingAppointment(req);
+                          setRejectionReason('');
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                       >
                         <XCircle className="w-3.5 h-3.5" />
                         <span>Decline</span>
@@ -421,6 +500,206 @@ export const TeacherDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Rejection Reason Modal */}
+      {rejectingAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <AlertCircle className="w-5 h-5" />
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Decline Session Request
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectingAppointment(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-3">
+              Decline session request from <strong>{rejectingAppointment.learnerName}</strong> for <em>"{rejectingAppointment.skillName}"</em>.
+            </p>
+
+            <div className="mt-4">
+              <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                Reason for Declining (Optional note to student)
+              </label>
+              <textarea
+                rows={3}
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="e.g. Schedule conflict, please book for Thursday after 6 PM."
+                className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white resize-none"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRejectingAppointment(null)}
+                className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={processingId === rejectingAppointment.id}
+                onClick={handleConfirmReject}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+              >
+                {processingId === rejectingAppointment.id ? 'Declining...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Complete Details Modal */}
+      {viewingDetailsAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Request Details
+                </h3>
+                <p className="text-xs text-neutral-500">ID: {viewingDetailsAppointment.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingDetailsAppointment(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/60 border border-neutral-200 dark:border-neutral-800">
+                <Avatar
+                  name={viewingDetailsAppointment.learnerName}
+                  avatarUrl={viewingDetailsAppointment.learnerAvatarUrl}
+                  bgColor={viewingDetailsAppointment.learnerAvatarBgColor || '#0284c7'}
+                  size="md"
+                />
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">Student</span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                    {viewingDetailsAppointment.learnerName}
+                  </span>
+                  {viewingDetailsAppointment.learnerHeadline && (
+                    <p className="text-[11px] text-neutral-500">{viewingDetailsAppointment.learnerHeadline}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Requested Skill</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {viewingDetailsAppointment.skillName}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Session Mode</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {viewingDetailsAppointment.isFreeSwap ? 'Free Skill Swap ($0)' : `$${viewingDetailsAppointment.totalCost} USD Paid Lesson`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Scheduled Date & Time</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {viewingDetailsAppointment.requestedDate} at {viewingDetailsAppointment.startTime} ({viewingDetailsAppointment.durationMinutes}m)
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Status</span>
+                  <Badge variant={viewingDetailsAppointment.status === 'Accepted' ? 'success' : viewingDetailsAppointment.status === 'Pending' ? 'warning' : 'error'}>
+                    {viewingDetailsAppointment.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {viewingDetailsAppointment.isFreeSwap && viewingDetailsAppointment.offeredSwapSkillName && (
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-sky-50/40 dark:bg-sky-950/20">
+                  <span className="text-[10px] text-sky-600 dark:text-sky-400 uppercase font-semibold block">Reciprocal Skill Offered</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {viewingDetailsAppointment.offeredSwapSkillName}
+                  </span>
+                </div>
+              )}
+
+              {viewingDetailsAppointment.message && (
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block mb-1">Student Notes / Goals</span>
+                  <p className="italic text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">
+                    &ldquo;{viewingDetailsAppointment.message}&rdquo;
+                  </p>
+                </div>
+              )}
+
+              {viewingDetailsAppointment.rejectionReason && (
+                <div className="p-3 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400">
+                  <span className="text-[10px] uppercase font-semibold block mb-1">Decline Reason</span>
+                  <p>{viewingDetailsAppointment.rejectionReason}</p>
+                </div>
+              )}
+
+              <p className="text-[11px] text-neutral-400">
+                Created: {new Date(viewingDetailsAppointment.createdAt).toLocaleString()}
+              </p>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setViewingDetailsAppointment(null)}
+                className="px-4 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+              >
+                Close
+              </button>
+              {viewingDetailsAppointment.status === 'Pending' && (
+                <>
+                  <button
+                    type="button"
+                    disabled={processingId === viewingDetailsAppointment.id}
+                    onClick={async () => {
+                      await handleAccept(viewingDetailsAppointment.id);
+                      setViewingDetailsAppointment(null);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Accept Request
+                  </button>
+                  <button
+                    type="button"
+                    disabled={processingId === viewingDetailsAppointment.id}
+                    onClick={() => {
+                      const target = viewingDetailsAppointment;
+                      setViewingDetailsAppointment(null);
+                      setRejectingAppointment(target);
+                      setRejectionReason('');
+                    }}
+                    className="px-4 py-2 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Decline
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

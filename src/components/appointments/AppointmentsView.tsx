@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Appointment, AppointmentStatus } from '../../types';
 import { Badge } from '../common/Badge';
+import { Avatar } from '../common/Avatar';
 import {
   CalendarDays,
   Clock,
@@ -19,6 +20,7 @@ import {
   DollarSign,
   RefreshCw,
   X,
+  AlertCircle,
 } from 'lucide-react';
 
 export const AppointmentsView: React.FC = () => {
@@ -28,6 +30,10 @@ export const AppointmentsView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | AppointmentStatus>('all');
   const [cancellingAppointmentId, setCancellingAppointmentId] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState<string>('');
+  const [rejectingAppointmentId, setRejectingAppointmentId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [selectedDetailsAppointment, setSelectedDetailsAppointment] = useState<Appointment | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
     refreshAppointments();
@@ -45,12 +51,39 @@ export const AppointmentsView: React.FC = () => {
     return true;
   });
 
-  const handleCancelSubmit = (e: React.FormEvent) => {
+  const handleAccept = async (id: string) => {
+    try {
+      setProcessingId(id);
+      await updateAppointmentStatus(id, 'Accepted');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleCancelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cancellingAppointmentId) return;
-    updateAppointmentStatus(cancellingAppointmentId, 'Cancelled', cancellationReason.trim());
-    setCancellingAppointmentId(null);
-    setCancellationReason('');
+    try {
+      setProcessingId(cancellingAppointmentId);
+      await updateAppointmentStatus(cancellingAppointmentId, 'Cancelled', cancellationReason.trim());
+      setCancellingAppointmentId(null);
+      setCancellationReason('');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleRejectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectingAppointmentId) return;
+    try {
+      setProcessingId(rejectingAppointmentId);
+      await updateAppointmentStatus(rejectingAppointmentId, 'Rejected', rejectionReason.trim());
+      setRejectingAppointmentId(null);
+      setRejectionReason('');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const getStatusBadge = (status: AppointmentStatus) => {
@@ -112,7 +145,7 @@ export const AppointmentsView: React.FC = () => {
 
       {/* Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {(['all', 'Pending', 'Accepted', 'Completed', 'Cancelled'] as const).map((st) => (
+        {(['all', 'Pending', 'Accepted', 'Rejected', 'Completed', 'Cancelled'] as const).map((st) => (
           <button
             key={st}
             onClick={() => setStatusFilter(st)}
@@ -144,6 +177,10 @@ export const AppointmentsView: React.FC = () => {
             filteredAppointments.map((apt) => {
               const isTeacher = currentUser.id === apt.teacherId;
               const otherPartyName = isTeacher ? apt.learnerName : apt.teacherName;
+              const otherAvatar = isTeacher ? apt.learnerAvatarUrl : apt.teacherAvatarUrl;
+              const otherBgColor = isTeacher
+                ? apt.learnerAvatarBgColor || '#0284c7'
+                : apt.teacherAvatarBgColor || '#059669';
               const roleTitle = isTeacher ? 'Student' : 'Instructor';
 
               return (
@@ -151,68 +188,99 @@ export const AppointmentsView: React.FC = () => {
                   key={apt.id}
                   className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-xs text-neutral-500">
-                      <span className="font-semibold text-neutral-900 dark:text-white">
-                        {apt.requestedDate}
-                      </span>
-                      <span>·</span>
-                      <span>{apt.startTime} ({apt.durationMinutes} mins)</span>
-                      <span>·</span>
-                      <span className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
-                        {apt.isFreeSwap ? (
-                          <>
-                            <RefreshCw className="w-3 h-3" />
-                            <span>Free Skill Swap</span>
-                          </>
-                        ) : (
-                          <span>${apt.totalCost} USD Paid Lesson</span>
+                  <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                    <Avatar
+                      name={otherPartyName}
+                      avatarUrl={otherAvatar}
+                      bgColor={otherBgColor}
+                      size="md"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <span className="font-semibold text-neutral-900 dark:text-white">
+                          {apt.requestedDate}
+                        </span>
+                        <span>·</span>
+                        <span>{apt.startTime} ({apt.durationMinutes} mins)</span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                          {apt.isFreeSwap ? (
+                            <>
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Free Skill Swap</span>
+                            </>
+                          ) : (
+                            <span>${apt.totalCost} USD Paid Lesson</span>
+                          )}
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-bold text-neutral-900 dark:text-white mt-1">
+                        {apt.skillName}
+                      </h3>
+
+                      <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+                        {roleTitle}: <strong>{otherPartyName}</strong>
+                        {apt.isFreeSwap && apt.offeredSwapSkillName && (
+                          <span> · Exchange topic: {apt.offeredSwapSkillName}</span>
                         )}
-                      </span>
-                    </div>
+                      </p>
 
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white mt-1">
-                      {apt.skillName}
-                    </h3>
-
-                    <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-                      {roleTitle}: <strong>{otherPartyName}</strong>
-                      {apt.isFreeSwap && apt.offeredSwapSkillName && (
-                        <span> · Exchange topic: {apt.offeredSwapSkillName}</span>
+                      {apt.message && (
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 italic mt-2 bg-neutral-50 dark:bg-neutral-950 p-2.5 rounded-lg border border-neutral-200 dark:border-neutral-800">
+                          &ldquo;{apt.message}&rdquo;
+                        </p>
                       )}
-                    </p>
 
-                    {apt.message && (
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 italic mt-2 bg-neutral-50 dark:bg-neutral-950 p-2.5 rounded-lg border border-neutral-200 dark:border-neutral-800">
-                        &ldquo;{apt.message}&rdquo;
-                      </p>
-                    )}
+                      {apt.status === 'Rejected' && (apt.rejectionReason || apt.cancellationReason) && (
+                        <p className="text-xs text-rose-600 dark:text-rose-400 mt-2 font-medium bg-rose-50 dark:bg-rose-950/30 p-2 rounded border border-rose-200 dark:border-rose-900">
+                          Decline reason: {apt.rejectionReason || apt.cancellationReason}
+                        </p>
+                      )}
 
-                    {apt.cancellationReason && (
-                      <p className="text-xs text-rose-600 dark:text-rose-400 mt-2 font-medium">
-                        Cancellation note: {apt.cancellationReason}
-                      </p>
-                    )}
+                      {apt.status === 'Cancelled' && apt.cancellationReason && (
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-2 font-medium">
+                          Cancellation note: {apt.cancellationReason}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Actions & Status */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 pt-3 md:pt-0 border-t md:border-t-0 border-neutral-100 dark:border-neutral-800">
                     <div>{getStatusBadge(apt.status)}</div>
 
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDetailsAppointment(apt)}
+                      className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+                    >
+                      Details
+                    </button>
+
                     {/* Pending actions for teacher */}
                     {apt.status === 'Pending' && isTeacher && (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => updateAppointmentStatus(apt.id, 'Accepted')}
-                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
+                          type="button"
+                          disabled={processingId === apt.id}
+                          onClick={() => handleAccept(apt.id)}
+                          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          Accept
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{processingId === apt.id ? 'Accepting...' : 'Accept'}</span>
                         </button>
                         <button
-                          onClick={() => updateAppointmentStatus(apt.id, 'Rejected')}
-                          className="px-3.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                          type="button"
+                          disabled={processingId === apt.id}
+                          onClick={() => {
+                            setRejectingAppointmentId(apt.id);
+                            setRejectionReason('');
+                          }}
+                          className="px-3.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          Decline
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Decline</span>
                         </button>
                       </div>
                     )}
@@ -220,6 +288,7 @@ export const AppointmentsView: React.FC = () => {
                     {/* Cancel action for active appointments */}
                     {(apt.status === 'Pending' || apt.status === 'Accepted') && (
                       <button
+                        type="button"
                         onClick={() => setCancellingAppointmentId(apt.id)}
                         className="px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
                       >
@@ -230,8 +299,10 @@ export const AppointmentsView: React.FC = () => {
                     {/* Mark completed */}
                     {apt.status === 'Accepted' && (
                       <button
+                        type="button"
+                        disabled={processingId === apt.id}
                         onClick={() => updateAppointmentStatus(apt.id, 'Completed')}
-                        className="px-3.5 py-1.5 text-xs font-semibold text-neutral-900 dark:text-white bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-colors cursor-pointer"
+                        className="px-3.5 py-1.5 text-xs font-semibold text-neutral-900 dark:text-white bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
                       >
                         Mark Completed
                       </button>
@@ -356,6 +427,191 @@ export const AppointmentsView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Decline Reason Modal */}
+      {rejectingAppointmentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <AlertCircle className="w-5 h-5" />
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Decline Session Request
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectingAppointmentId(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-3">
+              Are you sure you want to decline this request? You may provide an optional reason for the student.
+            </p>
+
+            <form onSubmit={handleRejectSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Reason for Declining (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="e.g. Schedule conflict, please request another time..."
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectingAppointmentId(null)}
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={processingId === rejectingAppointmentId}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+                >
+                  {processingId === rejectingAppointmentId ? 'Declining...' : 'Confirm Decline'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Appointment Complete Details Modal */}
+      {selectedDetailsAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Appointment Details
+                </h3>
+                <p className="text-xs text-neutral-500">ID: {selectedDetailsAppointment.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDetailsAppointment(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/60 border border-neutral-200 dark:border-neutral-800 flex items-center gap-2.5">
+                  <Avatar
+                    name={selectedDetailsAppointment.learnerName}
+                    avatarUrl={selectedDetailsAppointment.learnerAvatarUrl}
+                    bgColor={selectedDetailsAppointment.learnerAvatarBgColor || '#0284c7'}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-bold text-neutral-400 block">Student</span>
+                    <span className="font-bold text-neutral-900 dark:text-white truncate block">
+                      {selectedDetailsAppointment.learnerName}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/60 border border-neutral-200 dark:border-neutral-800 flex items-center gap-2.5">
+                  <Avatar
+                    name={selectedDetailsAppointment.teacherName}
+                    avatarUrl={selectedDetailsAppointment.teacherAvatarUrl}
+                    bgColor={selectedDetailsAppointment.teacherAvatarBgColor || '#059669'}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-bold text-neutral-400 block">Instructor</span>
+                    <span className="font-bold text-neutral-900 dark:text-white truncate block">
+                      {selectedDetailsAppointment.teacherName}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Requested Skill</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {selectedDetailsAppointment.skillName}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Session Mode</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {selectedDetailsAppointment.isFreeSwap ? 'Free Skill Swap ($0)' : `$${selectedDetailsAppointment.totalCost} USD Paid Lesson`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Scheduled Date & Time</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {selectedDetailsAppointment.requestedDate} at {selectedDetailsAppointment.startTime} ({selectedDetailsAppointment.durationMinutes}m)
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Status</span>
+                  <div>{getStatusBadge(selectedDetailsAppointment.status)}</div>
+                </div>
+              </div>
+
+              {selectedDetailsAppointment.isFreeSwap && selectedDetailsAppointment.offeredSwapSkillName && (
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-sky-50/40 dark:bg-sky-950/20">
+                  <span className="text-[10px] text-sky-600 dark:text-sky-400 uppercase font-semibold block">Reciprocal Skill Offered</span>
+                  <span className="font-semibold text-neutral-900 dark:text-white">
+                    {selectedDetailsAppointment.offeredSwapSkillName}
+                  </span>
+                </div>
+              )}
+
+              {selectedDetailsAppointment.message && (
+                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block mb-1">Student Notes / Goals</span>
+                  <p className="italic text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap">
+                    &ldquo;{selectedDetailsAppointment.message}&rdquo;
+                  </p>
+                </div>
+              )}
+
+              {(selectedDetailsAppointment.rejectionReason || selectedDetailsAppointment.cancellationReason) && (
+                <div className="p-3 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400">
+                  <span className="text-[10px] uppercase font-semibold block mb-1">
+                    {selectedDetailsAppointment.status === 'Rejected' ? 'Decline Reason' : 'Cancellation Note'}
+                  </span>
+                  <p>{selectedDetailsAppointment.rejectionReason || selectedDetailsAppointment.cancellationReason}</p>
+                </div>
+              )}
+
+              <p className="text-[11px] text-neutral-400">
+                Created: {new Date(selectedDetailsAppointment.createdAt).toLocaleString()}
+              </p>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedDetailsAppointment(null)}
+                className="px-4 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

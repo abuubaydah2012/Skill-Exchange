@@ -6,6 +6,7 @@ export interface IConversation extends Document {
   lastMessageText: string;
   lastMessageTimestamp: Date;
   unreadCountForUser: Map<string, number>;
+  deletedFor: Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +36,13 @@ const ConversationSchema = new Schema<IConversation>(
       of: Number,
       default: () => new Map(),
     },
+    deletedFor: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        index: true,
+      },
+    ],
   },
   {
     timestamps: true,

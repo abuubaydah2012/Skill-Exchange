@@ -4,8 +4,13 @@ export interface IAppointment extends Document {
   _id: Types.ObjectId;
   learnerId: Types.ObjectId; // Student ID
   learnerName?: string;
+  learnerAvatarUrl?: string;
+  learnerAvatarBgColor?: string;
+  learnerHeadline?: string;
   teacherId: Types.ObjectId; // Teacher ID
   teacherName?: string;
+  teacherAvatarUrl?: string;
+  teacherAvatarBgColor?: string;
   skillId: Types.ObjectId;   // Skill ID
   skillName: string;
   requestedDate: string;     // YYYY-MM-DD
@@ -18,6 +23,7 @@ export interface IAppointment extends Document {
   message: string;
   appointmentType: 'Free' | 'Paid';
   status: 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled' | 'Completed';
+  rejectionReason?: string;
   cancellationReason?: string;
   meetingId?: string;
   createdAt: Date;
@@ -36,6 +42,18 @@ const AppointmentSchema = new Schema<IAppointment>(
       type: String,
       default: '',
     },
+    learnerAvatarUrl: {
+      type: String,
+      default: '',
+    },
+    learnerAvatarBgColor: {
+      type: String,
+      default: '#0284c7',
+    },
+    learnerHeadline: {
+      type: String,
+      default: '',
+    },
     teacherId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -45,6 +63,14 @@ const AppointmentSchema = new Schema<IAppointment>(
     teacherName: {
       type: String,
       default: '',
+    },
+    teacherAvatarUrl: {
+      type: String,
+      default: '',
+    },
+    teacherAvatarBgColor: {
+      type: String,
+      default: '#059669',
     },
     skillId: {
       type: Schema.Types.ObjectId,
@@ -99,6 +125,9 @@ const AppointmentSchema = new Schema<IAppointment>(
       enum: ['Pending', 'Accepted', 'Rejected', 'Cancelled', 'Completed'],
       default: 'Pending',
       index: true,
+    },
+    rejectionReason: {
+      type: String,
     },
     cancellationReason: {
       type: String,

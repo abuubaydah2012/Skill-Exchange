@@ -5,6 +5,7 @@ import { Skill } from '../models/Skill.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
+import { emitToUser } from '../socket.js';
 
 const adaptAppointment = (apt: any) => {
   const learnerObj = apt.learnerId;
@@ -19,8 +20,13 @@ const adaptAppointment = (apt: any) => {
     id: apt._id.toString(),
     learnerId: lId,
     learnerName: apt.learnerName || learnerObj?.name || 'Student',
+    learnerAvatarUrl: apt.learnerAvatarUrl || learnerObj?.avatarUrl || '',
+    learnerAvatarBgColor: apt.learnerAvatarBgColor || learnerObj?.avatarBgColor || '#0284c7',
+    learnerHeadline: apt.learnerHeadline || learnerObj?.headline || '',
     teacherId: tId,
     teacherName: apt.teacherName || teacherObj?.name || 'Instructor',
+    teacherAvatarUrl: apt.teacherAvatarUrl || teacherObj?.avatarUrl || '',
+    teacherAvatarBgColor: apt.teacherAvatarBgColor || teacherObj?.avatarBgColor || '#059669',
     skillId: sId,
     skillName: apt.skillName || skillObj?.name || 'Skill Session',
     requestedDate: apt.requestedDate,
@@ -32,7 +38,8 @@ const adaptAppointment = (apt: any) => {
     totalCost: apt.totalCost || 0,
     message: apt.message || '',
     status: apt.status,
-    cancellationReason: apt.cancellationReason,
+    rejectionReason: apt.rejectionReason || apt.cancellationReason || '',
+    cancellationReason: apt.cancellationReason || apt.rejectionReason || '',
     createdAt: apt.createdAt ? (apt.createdAt instanceof Date ? apt.createdAt.toISOString() : new Date(apt.createdAt).toISOString()) : new Date().toISOString(),
     meetingId: apt.meetingId,
   };
@@ -74,22 +81,22 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    // Resolve teacher robustly
+    // Resolve designated teacher strictly
     let targetTeacher = null;
     if (mongoose.Types.ObjectId.isValid(teacherId)) {
       targetTeacher = await User.findById(teacherId);
     }
-    if (!targetTeacher) {
+    if (!targetTeacher && typeof teacherId === 'string') {
+      const cleanTeacher = teacherId.trim();
       targetTeacher = await User.findOne({
         $or: [
-          { email: teacherId },
-          { email: 'teacher@skillexchange.io' },
-          { role: 'teacher' },
-        ],
+          { email: cleanTeacher.toLowerCase() },
+          { _id: mongoose.Types.ObjectId.isValid(cleanTeacher) ? cleanTeacher : null },
+        ].filter(Boolean),
       });
     }
 
-    if (!targetTeacher || targetTeacher.isSuspended) {
+    if (!targetTeacher || targetTeacher.role !== 'teacher' || targetTeacher.isSuspended) {
       res.status(404).json({
         success: false,
         message: 'The requested instructor was not found or is currently unavailable.',
@@ -148,8 +155,13 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
     const appointment = await Appointment.create({
       learnerId: req.user._id,
       learnerName: req.user.name,
+      learnerAvatarUrl: req.user.avatarUrl || '',
+      learnerAvatarBgColor: req.user.avatarBgColor || '#0284c7',
+      learnerHeadline: req.user.headline || '',
       teacherId: targetTeacher._id,
       teacherName: targetTeacher.name,
+      teacherAvatarUrl: targetTeacher.avatarUrl || '',
+      teacherAvatarBgColor: targetTeacher.avatarBgColor || '#059669',
       skillId: targetSkill._id,
       skillName: targetSkill.name,
       requestedDate: finalDate,
@@ -166,7 +178,7 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
     });
 
     // Notify teacher of the incoming request
-    await Notification.create({
+    const teacherNotif = await Notification.create({
       userId: targetTeacher._id,
       title: 'New Appointment Request',
       message: `${req.user.name} requested a ${isFree ? 'Free Swap' : 'Paid'} session for "${targetSkill.name}" on ${finalDate}.`,
@@ -176,6 +188,10 @@ export const createAppointment = async (req: AuthenticatedRequest, res: Response
     });
 
     const adapted = adaptAppointment(appointment);
+
+    // Emit real-time events via Socket.IO to the designated teacher
+    emitToUser(targetTeacher._id.toString(), 'appointment:received', adapted);
+    emitToUser(targetTeacher._id.toString(), 'notification:received', teacherNotif);
 
     res.status(201).json({
       success: true,
@@ -287,6 +303,7 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
       return;
     }
 
+    const previousStatus = appointment.status;
     const userId = req.user?._id.toString();
     const isTeacher = appointment.teacherId.toString() === userId;
     const isLearner = appointment.learnerId.toString() === userId;
@@ -298,6 +315,13 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
         res.status(403).json({
           success: false,
           message: 'Only the designated instructor or administrator can accept or reject an appointment request.',
+        });
+        return;
+      }
+      if (previousStatus !== 'Pending') {
+        res.status(400).json({
+          success: false,
+          message: `Cannot change status to ${status}. Only Pending requests can be accepted or rejected (current status is ${previousStatus}).`,
         });
         return;
       }
@@ -319,15 +343,13 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
       }
     }
 
-    const previousStatus = appointment.status;
-
     // Idempotency check: if appointment is already completed, return without re-incrementing counters
     if (status === 'Completed') {
       if (previousStatus === 'Completed') {
         res.status(200).json({
           success: true,
           message: 'Appointment has already been completed.',
-          data: appointment,
+          data: adaptAppointment(appointment),
         });
         return;
       }
@@ -340,17 +362,13 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
       }
     }
 
-    if ((status === 'Accepted' || status === 'Rejected') && (previousStatus === 'Completed' || previousStatus === 'Cancelled')) {
-      res.status(400).json({
-        success: false,
-        message: `Cannot change status to ${status} on an appointment that is already ${previousStatus.toLowerCase()}.`,
-      });
-      return;
-    }
-
     appointment.status = status;
-    if (cancellationReason) {
-      appointment.cancellationReason = cancellationReason;
+    const reasonText = req.body.rejectionReason || req.body.cancellationReason || req.body.reason || cancellationReason || '';
+    if (status === 'Rejected') {
+      appointment.rejectionReason = reasonText;
+      appointment.cancellationReason = reasonText;
+    } else if (status === 'Cancelled' && reasonText) {
+      appointment.cancellationReason = reasonText;
     }
     await appointment.save();
 
@@ -364,19 +382,30 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
 
     // Notify the other party of status change
     const targetUserId = isTeacher ? appointment.learnerId : appointment.teacherId;
-    await Notification.create({
+    const notifMessage = status === 'Rejected' && reasonText
+      ? `Your appointment request for "${appointment.skillName}" was declined. Reason: ${reasonText}`
+      : `Your appointment for "${appointment.skillName}" scheduled for ${appointment.requestedDate} is now ${status.toLowerCase()}.${reasonText ? ` Note: ${reasonText}` : ''}`;
+
+    const notification = await Notification.create({
       userId: targetUserId,
       title: `Appointment ${status}`,
-      message: `Your appointment for ${appointment.skillName} scheduled for ${appointment.requestedDate} is now ${status.toLowerCase()}.${cancellationReason ? ` Reason: ${cancellationReason}` : ''}`,
+      message: notifMessage,
       category: 'Appointments',
       relatedAppointmentId: appointment._id,
       actionUrl: '/appointments',
     });
 
+    const adapted = adaptAppointment(appointment);
+
+    // Emit real-time updates via Socket.IO
+    emitToUser(appointment.learnerId.toString(), 'appointment:updated', adapted);
+    emitToUser(appointment.teacherId.toString(), 'appointment:updated', adapted);
+    emitToUser(targetUserId.toString(), 'notification:received', notification);
+
     res.status(200).json({
       success: true,
       message: `Appointment status updated to ${status}.`,
-      data: adaptAppointment(appointment),
+      data: adapted,
     });
   } catch (error) {
     next(error);
@@ -414,6 +443,7 @@ export const cancelAppointment = async (req: AuthenticatedRequest, res: Response
       return;
     }
 
+    const previousStatus = appointment.status;
     const userId = req.user?._id.toString();
     const isParticipant =
       appointment.learnerId.toString() === userId ||
@@ -434,7 +464,7 @@ export const cancelAppointment = async (req: AuthenticatedRequest, res: Response
       ? appointment.teacherId
       : appointment.learnerId;
 
-    await Notification.create({
+    const notif = await Notification.create({
       userId: targetUserId,
       title: 'Appointment Cancelled',
       message: `The session scheduled for ${appointment.requestedDate} was cancelled. Reason: ${reason}`,
@@ -443,10 +473,17 @@ export const cancelAppointment = async (req: AuthenticatedRequest, res: Response
       actionUrl: '/appointments',
     });
 
+    const adapted = adaptAppointment(appointment);
+
+    // Emit real-time updates via Socket.IO
+    emitToUser(appointment.learnerId.toString(), 'appointment:updated', adapted);
+    emitToUser(appointment.teacherId.toString(), 'appointment:updated', adapted);
+    emitToUser(targetUserId.toString(), 'notification:received', notif);
+
     res.status(200).json({
       success: true,
       message: 'Appointment cancelled successfully.',
-      data: adaptAppointment(appointment),
+      data: adapted,
     });
   } catch (error) {
     next(error);

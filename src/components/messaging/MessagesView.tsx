@@ -22,6 +22,7 @@ import {
   X,
   MessageSquare,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 
 export const MessagesView: React.FC = () => {
@@ -32,6 +33,7 @@ export const MessagesView: React.FC = () => {
     messages,
     sendMessage,
     markConversationAsRead,
+    deleteConversation,
     loadMessagesForConversation,
     refreshConversations,
     blockUser,
@@ -41,6 +43,8 @@ export const MessagesView: React.FC = () => {
 
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [selectedRecipient, setSelectedRecipient] = useState<UserProfile | null>(null);
+  const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -261,6 +265,29 @@ export const MessagesView: React.FC = () => {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!conversationToDelete) return;
+    setIsDeletingConversation(true);
+    try {
+      const convId = conversationToDelete.id;
+      await deleteConversation(convId);
+      if (activeConversationId === convId) {
+        const remaining = userConversations.filter((c) => c.id !== convId);
+        if (remaining.length > 0) {
+          setActiveConversationId(remaining[0].id);
+          const other = resolveOtherParticipant(remaining[0]);
+          setSelectedRecipient(other);
+        } else {
+          setActiveConversationId(null);
+          setSelectedRecipient(null);
+        }
+      }
+    } finally {
+      setIsDeletingConversation(false);
+      setConversationToDelete(null);
+    }
+  };
+
   const handleSimulateAttachment = () => {
     const sampleFiles = [
       { name: 'learning_plan_syllabus.pdf', size: '1.4 MB' },
@@ -412,43 +439,61 @@ export const MessagesView: React.FC = () => {
                     const unread = c.unreadCountForUser?.[currentUser.id] || 0;
 
                     return (
-                      <button
+                      <div
                         key={c.id}
-                        onClick={() => {
-                          setActiveConversationId(c.id);
-                          setSelectedRecipient(other);
-                          markConversationAsRead(c.id);
-                        }}
-                        className={`w-full p-3.5 text-left flex items-start gap-3 transition-colors cursor-pointer ${
+                        className={`group flex items-center w-full transition-colors ${
                           isSelected
                             ? 'bg-white dark:bg-neutral-900 border-l-2 border-neutral-900 dark:border-white shadow-2xs'
                             : 'hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40'
                         }`}
                       >
-                        <Avatar
-                          name={other.name}
-                          avatarUrl={other.avatarUrl}
-                          bgColor={other.avatarBgColor}
-                          size="sm"
-                          isVerified={other.isProfileVerified}
-                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveConversationId(c.id);
+                            setSelectedRecipient(other);
+                            markConversationAsRead(c.id);
+                          }}
+                          className="flex-1 p-3.5 pr-1 text-left flex items-start gap-3 min-w-0 cursor-pointer"
+                        >
+                          <Avatar
+                            name={other.name}
+                            avatarUrl={other.avatarUrl}
+                            bgColor={other.avatarBgColor}
+                            size="sm"
+                            isVerified={other.isProfileVerified}
+                          />
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                              {other.name}
-                            </span>
-                            {unread > 0 && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-sky-600 rounded-full tabular-nums">
-                                {unread}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
+                                {other.name}
                               </span>
-                            )}
+                              {unread > 0 && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-sky-600 rounded-full tabular-nums">
+                                  {unread}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                              {c.lastMessageText || 'Draft conversation'}
+                            </p>
                           </div>
-                          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
-                            {c.lastMessageText || 'Draft conversation'}
-                          </p>
-                        </div>
-                      </button>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConversationToDelete(c);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-2 mr-2 text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-neutral-200/50 dark:hover:bg-neutral-800 transition-all cursor-pointer shrink-0"
+                          title="Delete conversation from inbox"
+                          aria-label={`Delete conversation with ${other.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     );
                   })
                 )}
@@ -527,6 +572,18 @@ export const MessagesView: React.FC = () => {
                       <ShieldAlert className="w-3.5 h-3.5" />
                       <span>Report User</span>
                     </button>
+                    {activeConv && (
+                      <button
+                        onClick={() => {
+                          setShowOptionsDropdown(false);
+                          setConversationToDelete(activeConv);
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-1.5 cursor-pointer border-t border-neutral-100 dark:border-neutral-800"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Conversation</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -660,6 +717,60 @@ export const MessagesView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Delete Conversation Confirmation Modal */}
+      {conversationToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/50 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                  Delete Conversation?
+                </h3>
+                <p className="text-xs text-neutral-500">
+                  Remove conversation from your inbox
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed bg-neutral-50 dark:bg-neutral-800/50 p-3.5 rounded-xl border border-neutral-200/60 dark:border-neutral-700/60 mb-5">
+              Are you sure you want to delete this conversation from your inbox? This will remove it from your view. It will remain in the other participant's inbox.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isDeletingConversation}
+                onClick={() => setConversationToDelete(null)}
+                className="px-4 py-2 text-xs font-medium rounded-xl border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingConversation}
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              >
+                {isDeletingConversation ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete from Inbox</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

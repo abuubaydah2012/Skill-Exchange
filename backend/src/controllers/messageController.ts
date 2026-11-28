@@ -18,6 +18,7 @@ export const getConversations = async (req: AuthenticatedRequest, res: Response,
     const userId = req.user._id;
     const conversations = await Conversation.find({
       participantIds: userId,
+      deletedFor: { $ne: userId },
     })
       .populate('participantIds', 'name email avatarUrl avatarBgColor role')
       .sort({ lastMessageTimestamp: -1, updatedAt: -1 });
@@ -36,6 +37,7 @@ export const getConversations = async (req: AuthenticatedRequest, res: Response,
           ? new Date(c.lastMessageTimestamp).toISOString()
           : new Date(c.updatedAt).toISOString(),
         unreadCountForUser: unreadMap,
+        deletedFor: (c.deletedFor || []).map((d) => d.toString()),
       };
     });
 
@@ -166,10 +168,13 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
           [req.user._id.toString(), 0],
           [receiver._id.toString(), 1],
         ]),
+        deletedFor: [],
       });
     } else {
       conversation.lastMessageText = displayMsg;
       conversation.lastMessageTimestamp = now;
+      // If conversation was hidden/soft-deleted by either participant, restore inbox visibility upon new message
+      conversation.deletedFor = [];
       const currentUnread = conversation.unreadCountForUser?.get(receiver._id.toString()) || 0;
       conversation.unreadCountForUser.set(receiver._id.toString(), currentUnread + 1);
       await conversation.save();
@@ -214,10 +219,11 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
 
     const adaptedConversation = {
       id: conversation._id.toString(),
-      participantIds: conversation.participantIds.map((p) => p.toString()),
+      participantIds: conversation.participantIds.map((p) => (p._id ? p._id.toString() : p.toString())),
       lastMessageText: conversation.lastMessageText,
       lastMessageTimestamp: conversation.lastMessageTimestamp.toISOString(),
       unreadCountForUser: unreadMap,
+      deletedFor: (conversation.deletedFor || []).map((d) => d.toString()),
     };
 
     // Emit real-time events via Socket.IO
@@ -287,6 +293,54 @@ export const markConversationAsRead = async (req: AuthenticatedRequest, res: Res
     res.status(200).json({
       success: true,
       message: 'Conversation marked as read.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteConversationForUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
+      return;
+    }
+
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+      res.status(400).json({ success: false, message: 'Invalid conversation ID format.' });
+      return;
+    }
+
+    const conv = await Conversation.findById(conversationId);
+    if (!conv) {
+      res.status(404).json({ success: false, message: 'Conversation not found.' });
+      return;
+    }
+
+    const isParticipant = conv.participantIds.some(
+      (p) => p.toString() === userId.toString()
+    );
+
+    if (!isParticipant && req.user.role !== 'admin') {
+      res.status(403).json({ success: false, message: 'Forbidden: You are not a participant in this conversation.' });
+      return;
+    }
+
+    // Soft delete for this user only by pushing userId to deletedFor
+    await Conversation.findByIdAndUpdate(conversationId, {
+      $addToSet: { deletedFor: userId },
+    });
+
+    // Notify other connected sessions of current user via Socket.IO
+    emitToUser(userId.toString(), 'conversation:deleted', { conversationId });
+
+    res.status(200).json({
+      success: true,
+      message: 'Conversation deleted from your inbox successfully.',
+      data: { conversationId },
     });
   } catch (error) {
     next(error);

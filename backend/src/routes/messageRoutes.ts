@@ -4,6 +4,7 @@ import {
   getMessagesByConversation,
   sendMessage,
   markConversationAsRead,
+  deleteConversationForUser,
   searchTeachers,
 } from '../controllers/messageController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
@@ -17,5 +18,6 @@ router.get('/conversations', getConversations);
 router.get('/conversations/:conversationId', getMessagesByConversation);
 router.post('/', sendMessage);
 router.patch('/conversations/:conversationId/read', markConversationAsRead);
+router.delete('/conversations/:conversationId', deleteConversationForUser);
 
 export default router;

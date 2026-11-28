@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { UserProfile, UserSkill } from '../../types';
 import { Avatar } from '../common/Avatar';
@@ -29,9 +29,17 @@ import {
 export const DiscoveryView: React.FC = () => {
   const { users, currentUser } = useApp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Filters State
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q !== null) {
+      setSearchQuery(q);
+    }
+  }, [searchParams]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [minRating, setMinRating] = useState<number>(0);
   const [minExperience, setMinExperience] = useState<number>(0);

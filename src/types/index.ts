@@ -155,8 +155,13 @@ export interface Appointment {
   id: string;
   learnerId: string;
   learnerName: string;
+  learnerAvatarUrl?: string;
+  learnerAvatarBgColor?: string;
+  learnerHeadline?: string;
   teacherId: string;
   teacherName: string;
+  teacherAvatarUrl?: string;
+  teacherAvatarBgColor?: string;
   skillId: string;
   skillName: string;
   requestedDate: string; // YYYY-MM-DD
@@ -168,6 +173,7 @@ export interface Appointment {
   totalCost: number;
   message: string;
   status: AppointmentStatus;
+  rejectionReason?: string;
   cancellationReason?: string;
   createdAt: string;
   meetingId?: string;
@@ -209,9 +215,11 @@ export interface Message {
 export interface Conversation {
   id: string;
   participantIds: string[];
+  participants?: any[];
   lastMessageText: string;
   lastMessageTimestamp: string;
   unreadCountForUser: Record<string, number>;
+  deletedFor?: string[];
 }
 
 export interface Review {

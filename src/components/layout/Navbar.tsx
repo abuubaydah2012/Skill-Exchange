@@ -18,6 +18,7 @@ import {
   Check,
   Sparkles,
   Search,
+  X,
 } from 'lucide-react';
 import { UserRole } from '../../types';
 
@@ -34,14 +35,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
     resetDemoData,
     loginWithDemoRole,
     logout,
+    dashboardSearchQuery,
+    setDashboardSearchQuery,
+    triggerDashboardSearch,
   } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
+  const isDashboard = location.pathname === '/dashboard';
 
+  const [navSearch, setNavSearch] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const roleMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const unreadCount = currentUser
     ? notifications.filter((n) => n.userId === currentUser.id && !n.isRead).length
@@ -59,6 +66,50 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const currentSearchValue = isDashboard ? dashboardSearchQuery : navSearch;
+
+  const handleSearchChange = (value: string) => {
+    if (isDashboard) {
+      setDashboardSearchQuery(value);
+    } else {
+      setNavSearch(value);
+    }
+  };
+
+  const handleSearchClear = () => {
+    if (isDashboard) {
+      setDashboardSearchQuery('');
+    } else {
+      setNavSearch('');
+    }
+    searchInputRef.current?.focus();
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isDashboard) {
+      triggerDashboardSearch();
+      return;
+    }
+    const trimmed = navSearch.trim();
+    navigate(trimmed ? `/discover?q=${encodeURIComponent(trimmed)}` : '/discover');
+  };
 
   const handleRoleSwitch = (role: UserRole) => {
     loginWithDemoRole(role);
@@ -102,21 +153,35 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
           </button>
         </div>
 
-        {/* Zone 2: Search Affordance & Quick Breadcrumb */}
-        <div className="flex-1 max-w-md hidden lg:block">
-          <div
-            onClick={() => navigate('/discover')}
-            className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:border-neutral-300 dark:hover:border-neutral-700 cursor-pointer transition-colors"
-          >
-            <Search className="w-4 h-4 text-neutral-400" />
-            <span className="text-xs text-neutral-500 dark:text-neutral-400 select-none">
-              Search skills, teachers, or swaps (e.g. React, Spanish, SEO)...
-            </span>
-            <kbd className="ml-auto hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-neutral-400 bg-neutral-200/60 dark:bg-neutral-800 rounded">
-              /
-            </kbd>
+        {/* Zone 2: Search Bar (In-place on Dashboard, navigates to Discover on submit elsewhere) */}
+        <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md hidden sm:block">
+          <div className="relative flex items-center">
+            <Search className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={currentSearchValue}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search skills, courses, or teachers..."
+              aria-label="Search skills, courses, or teachers"
+              className="w-full pl-9 pr-14 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white focus:border-transparent transition-colors"
+            />
+            {currentSearchValue ? (
+              <button
+                type="button"
+                onClick={handleSearchClear}
+                aria-label="Clear search"
+                className="absolute right-2 p-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 rounded cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <kbd className="pointer-events-none absolute right-2.5 hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-neutral-400 bg-neutral-200/60 dark:bg-neutral-800 rounded">
+                /
+              </kbd>
+            )}
           </div>
-        </div>
+        </form>
 
         {/* Zone 3: Actions & Profile */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">

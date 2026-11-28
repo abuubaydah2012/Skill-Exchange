@@ -82,7 +82,7 @@ const runRealTimeVerification = async () => {
     // 1. Health check
     console.log('[Step 1] Checking API health and database connectivity...');
     const healthRes = await fetch(`${BASE_URL}/api/health`);
-    const healthData = await healthRes.json();
+    const healthData: any = await healthRes.json();
     console.log(`  Health Status: ${healthData.status}, DB: ${healthData.database?.status}`);
     if (healthData.database?.status !== 'connected') {
       throw new Error('Database is not connected on server!');
@@ -145,7 +145,7 @@ const runRealTimeVerification = async () => {
         text: testMsgText,
       }),
     });
-    const sendData1 = await sendRes1.json();
+    const sendData1: any = await sendRes1.json();
     if (!sendData1.success) {
       throw new Error(`Failed to send message: ${JSON.stringify(sendData1)}`);
     }
@@ -194,7 +194,7 @@ const runRealTimeVerification = async () => {
         text: replyMsgText,
       }),
     });
-    const sendData2 = await sendRes2.json();
+    const sendData2: any = await sendRes2.json();
     if (!sendData2.success) {
       throw new Error(`Failed to send reply: ${JSON.stringify(sendData2)}`);
     }
@@ -226,7 +226,7 @@ const runRealTimeVerification = async () => {
         Authorization: `Bearer ${student.token}`,
       },
     });
-    const markReadData = await markReadRes.json();
+    const markReadData: any = await markReadRes.json();
     console.log(`  ✓ REST PATCH /conversations/:id/read returned HTTP 200:`, markReadData.message);
 
     const readEvent = await teacherReadEventPromise;

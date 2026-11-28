@@ -145,6 +145,7 @@ interface AppContextType {
   // Messaging
   sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => Promise<{ message?: any; conversation?: any } | void>;
   markConversationAsRead: (conversationId: string) => void;
+  deleteConversation: (conversationId: string) => Promise<boolean>;
   loadMessagesForConversation: (conversationId: string) => Promise<void>;
   refreshConversations: () => Promise<void>;
   refreshAppointments: () => Promise<void>;
@@ -175,6 +176,12 @@ interface AppContextType {
   toggleUserVerification: (userId: string) => void;
   saveAnnouncement: (announcement: Partial<PlatformAnnouncement> & { title: string; content: string }) => void;
   toggleAnnouncementActive: (announcementId: string) => void;
+
+  // Dashboard In-Place Search
+  dashboardSearchQuery: string;
+  setDashboardSearchQuery: (query: string) => void;
+  dashboardSearchSubmitCount: number;
+  triggerDashboardSearch: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -319,6 +326,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return INITIAL_CLASSES;
     }
   });
+
+  const [dashboardSearchQuery, setDashboardSearchQuery] = useState<string>('');
+  const [dashboardSearchSubmitCount, setDashboardSearchSubmitCount] = useState<number>(0);
+  const triggerDashboardSearch = useCallback(() => {
+    setDashboardSearchSubmitCount((c) => c + 1);
+  }, []);
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     try {
@@ -473,6 +486,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (convsRes.success && Array.isArray(convsRes.data)) {
         setConversations(convsRes.data);
+
+        // Fetch and hydrate authentic messages for all user's active conversations from MongoDB Atlas
+        if (convsRes.data.length > 0) {
+          try {
+            const msgPromises = convsRes.data.map((c: any) => messageApi.getMessages(c.id));
+            const msgResults = await Promise.all(msgPromises);
+            const backendMessages: Message[] = [];
+            msgResults.forEach((r) => {
+              if (r.success && Array.isArray(r.data)) {
+                backendMessages.push(...r.data);
+              }
+            });
+
+            setMessages((prev) => {
+              const map = new Map<string, Message>();
+              prev.forEach((m) => map.set(m.id, m));
+              backendMessages.forEach((m) => map.set(m.id, m));
+              return Array.from(map.values()).sort(
+                (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+              );
+            });
+          } catch {
+            // Non-blocking
+          }
+        }
       }
 
       if (usersRes.success && Array.isArray(usersRes.data)) {
@@ -537,6 +575,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const res = await messageApi.getConversations();
       if (res.success && Array.isArray(res.data)) {
         setConversations(res.data);
+        if (res.data.length > 0) {
+          try {
+            const msgPromises = res.data.map((c: any) => messageApi.getMessages(c.id));
+            const msgResults = await Promise.all(msgPromises);
+            const backendMessages: Message[] = [];
+            msgResults.forEach((r) => {
+              if (r.success && Array.isArray(r.data)) {
+                backendMessages.push(...r.data);
+              }
+            });
+            setMessages((prev) => {
+              const map = new Map<string, Message>();
+              prev.forEach((m) => map.set(m.id, m));
+              backendMessages.forEach((m) => map.set(m.id, m));
+              return Array.from(map.values()).sort(
+                (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+              );
+            });
+          } catch {
+            // Non-blocking
+          }
+        }
       }
     } catch {
       // Ignore
@@ -549,7 +609,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.success && Array.isArray(res.data)) {
         setMessages((prev) => {
           const others = prev.filter((m) => m.conversationId !== conversationId);
-          return [...others, ...res.data];
+          const combined = [...others, ...res.data];
+          return combined.sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
         });
       }
     } catch {
@@ -723,14 +786,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     };
 
+    const handleAppointmentReceived = (newApt: Appointment) => {
+      setAppointments((prev) => {
+        const exists = prev.some((a) => a.id === newApt.id);
+        return exists ? prev.map((a) => (a.id === newApt.id ? newApt : a)) : [newApt, ...prev];
+      });
+      if (currentUser?.id === newApt.teacherId) {
+        addToast('info', 'New Session Request', `${newApt.learnerName} requested a session for "${newApt.skillName}".`);
+      }
+    };
+
+    const handleAppointmentUpdated = (updatedApt: Appointment) => {
+      setAppointments((prev) => {
+        const exists = prev.some((a) => a.id === updatedApt.id);
+        return exists ? prev.map((a) => (a.id === updatedApt.id ? updatedApt : a)) : [updatedApt, ...prev];
+      });
+      if (currentUser?.id === updatedApt.learnerId) {
+        if (updatedApt.status === 'Accepted') {
+          addToast('success', 'Request Accepted!', `${updatedApt.teacherName} accepted your session for "${updatedApt.skillName}".`);
+        } else if (updatedApt.status === 'Rejected') {
+          const reasonMsg = updatedApt.rejectionReason ? ` Reason: ${updatedApt.rejectionReason}` : '';
+          addToast('warning', 'Request Declined', `${updatedApt.teacherName} declined your session request.${reasonMsg}`);
+        }
+      }
+    };
+
+    const handleConversationDeleted = ({ conversationId }: { conversationId: string }) => {
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      setMessages((prev) => prev.filter((m) => m.conversationId !== conversationId));
+    };
+
     socket.on('message:received', handleMessageReceived);
     socket.on('conversation:updated', handleConversationUpdated);
     socket.on('conversation:read', handleConversationRead);
+    socket.on('conversation:deleted', handleConversationDeleted);
+    socket.on('appointment:received', handleAppointmentReceived);
+    socket.on('appointment:updated', handleAppointmentUpdated);
 
     return () => {
       socket.off('message:received', handleMessageReceived);
       socket.off('conversation:updated', handleConversationUpdated);
       socket.off('conversation:read', handleConversationRead);
+      socket.off('conversation:deleted', handleConversationDeleted);
+      socket.off('appointment:received', handleAppointmentReceived);
+      socket.off('appointment:updated', handleAppointmentUpdated);
     };
   }, [currentUser?.id, refreshConversations]);
 
@@ -1604,19 +1703,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             prev.map((a) => (a.id === updatedApt.id || a.id === appointmentId ? updatedApt : a))
           );
           addToast('success', `Request ${status}`, `Appointment has been marked as ${status}.`);
-          return;
+          return updatedApt;
+        } else {
+          const errMsg = apiRes.message || apiRes.error || `Failed to update status to ${status}.`;
+          addToast('error', 'Update Failed', errMsg);
+          throw new Error(errMsg);
         }
-      } catch {
-        // Fall through to local state update
-      }
+      } catch (err: any) {
+        if (!err.message || (!err.message.includes('Network error') && !err.message.includes('Could not connect'))) {
+          addToast('error', 'Action Failed', err.message || 'Could not update request status.');
+          throw err;
+        }
 
-      setAppointments((prev) =>
-        prev.map((apt) => {
-          if (apt.id !== appointmentId) return apt;
-          return { ...apt, status, cancellationReason };
-        })
-      );
-      addToast('info', `Status Updated`, `Appointment marked as ${status}.`);
+        // Local fallback only if offline / server disconnected
+        setAppointments((prev) =>
+          prev.map((apt) => {
+            if (apt.id !== appointmentId) return apt;
+            return {
+              ...apt,
+              status,
+              cancellationReason,
+              rejectionReason: status === 'Rejected' ? cancellationReason : apt.rejectionReason,
+            };
+          })
+        );
+        addToast('info', `Status Updated`, `Appointment marked as ${status} (Local offline mode).`);
+      }
     },
     [addToast]
   );
@@ -1912,6 +2024,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     },
     [currentUser]
+  );
+
+  const deleteConversation = useCallback(
+    async (conversationId: string): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const res = await messageApi.deleteConversation(conversationId);
+          if (res.success) {
+            setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+            setMessages((prev) => prev.filter((m) => m.conversationId !== conversationId));
+            addToast('success', 'Conversation Deleted', 'The conversation was removed from your inbox.');
+            return true;
+          } else {
+            addToast('error', 'Delete Failed', res.message || 'Could not delete conversation.');
+            return false;
+          }
+        } catch {
+          // Offline fallback
+        }
+      }
+
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      setMessages((prev) => prev.filter((m) => m.conversationId !== conversationId));
+      addToast('info', 'Conversation Deleted', 'The conversation was removed from your inbox.');
+      return true;
+    },
+    [currentUser, addToast]
   );
 
   const blockUser = useCallback(
@@ -2358,6 +2500,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         sendMessage,
         markConversationAsRead,
+        deleteConversation,
         loadMessagesForConversation,
         refreshConversations,
         refreshAppointments,
@@ -2384,6 +2527,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reviewIdentityVerification,
         saveAnnouncement,
         toggleAnnouncementActive,
+
+        dashboardSearchQuery,
+        setDashboardSearchQuery,
+        dashboardSearchSubmitCount,
+        triggerDashboardSearch,
       }}
     >
       {children}

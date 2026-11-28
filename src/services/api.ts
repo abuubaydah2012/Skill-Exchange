@@ -319,7 +319,18 @@ export const appointmentApi = {
   updateStatus: (id: string, status: string, cancellationReason?: string) =>
     request<any>(`/appointments/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, cancellationReason }),
+      body: JSON.stringify({ status, cancellationReason, rejectionReason: cancellationReason }),
+    }),
+
+  acceptAppointment: (id: string) =>
+    request<any>(`/appointments/${id}/accept`, {
+      method: 'PATCH',
+    }),
+
+  rejectAppointment: (id: string, rejectionReason?: string) =>
+    request<any>(`/appointments/${id}/reject`, {
+      method: 'PATCH',
+      body: JSON.stringify({ rejectionReason, cancellationReason: rejectionReason, reason: rejectionReason }),
     }),
 
   cancelAppointment: (id: string, reason?: string) =>
@@ -353,6 +364,11 @@ export const messageApi = {
   markAsRead: (conversationId: string) =>
     request(`/messages/conversations/${conversationId}/read`, {
       method: 'PATCH',
+    }),
+
+  deleteConversation: (conversationId: string) =>
+    request<{ conversationId: string }>(`/messages/conversations/${conversationId}`, {
+      method: 'DELETE',
     }),
 };
 

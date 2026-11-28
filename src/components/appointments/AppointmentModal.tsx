@@ -40,24 +40,49 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
   );
   const [message, setMessage] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen || !currentUser) return null;
 
-  const selectedSkill = teacher.teachingSkills.find((s) => s.id === selectedSkillId) || teacher.teachingSkills[0];
+  const targetTeacherId = teacher.id || (teacher as any)._id;
+  const selectedSkill =
+    teacher.teachingSkills.find((s) => s.id === selectedSkillId) ||
+    teacher.teachingSkills[0] ||
+    { id: 'skill-general', name: 'General Mentorship Session', hourlyPrice: 0, proficiency: 'Intermediate' };
 
-  const hourlyRate = selectedSkill ? selectedSkill.hourlyPrice : 0;
+  const hourlyRate = selectedSkill ? (selectedSkill.hourlyPrice || 0) : 0;
   const totalCost = isFreeSwap ? 0 : Math.round((hourlyRate * durationMinutes) / 60);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSkill) return;
+    setFormError(null);
+
+    if (!targetTeacherId) {
+      setFormError('Instructor ID is missing. Please reopen the instructor profile.');
+      return;
+    }
+
+    if (!requestedDate) {
+      setFormError('Please select a valid date for the session.');
+      return;
+    }
+
+    if (!startTime) {
+      setFormError('Please select a start time for the session.');
+      return;
+    }
+
+    if (isFreeSwap && !offeredSwapSkillName.trim()) {
+      setFormError('Please specify the skill or topic you can teach in return.');
+      return;
+    }
 
     setSubmitting(true);
     try {
       await createAppointment({
         learnerId: currentUser.id,
         learnerName: currentUser.name,
-        teacherId: teacher.id,
+        teacherId: targetTeacherId,
         teacherName: teacher.name,
         skillId: selectedSkill.id,
         skillName: selectedSkill.name,
@@ -65,12 +90,14 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
         startTime,
         durationMinutes,
         isFreeSwap,
-        offeredSwapSkillName: isFreeSwap ? offeredSwapSkillName : undefined,
+        offeredSwapSkillName: isFreeSwap ? offeredSwapSkillName.trim() : undefined,
         hourlyPrice: hourlyRate,
         totalCost,
         message: message.trim(),
       });
       onClose();
+    } catch (err: any) {
+      setFormError(err.message || 'Could not submit request. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -102,6 +129,12 @@ export const AppointmentModal: React.FC<AppointmentModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {formError && (
+          <div className="mt-3 p-3 text-xs rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300">
+            {formError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Select Skill */}
