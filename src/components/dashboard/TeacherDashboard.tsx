@@ -76,9 +76,12 @@ export const TeacherDashboard: React.FC = () => {
   const [viewingDetailsAppointment, setViewingDetailsAppointment] = useState<Appointment | null>(null);
 
   const handleAccept = async (aptId: string) => {
+    if (processingId === aptId) return;
     try {
       setProcessingId(aptId);
       await updateAppointmentStatus(aptId, 'Accepted');
+    } catch {
+      // Error notification is handled in AppContext; keep status Pending for retry
     } finally {
       setProcessingId(null);
     }

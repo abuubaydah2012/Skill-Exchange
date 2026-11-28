@@ -532,25 +532,25 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
     }
 
     // Notify the other party of status change
-    const targetUserId = isTeacher ? appointment.learnerId : appointment.teacherId;
+    const targetUserId = isTeacher ? savedAppointment.learnerId : savedAppointment.teacherId;
     const notifMessage = status === 'Rejected' && reasonText
-      ? `Your appointment request for "${appointment.skillName}" was declined. Reason: ${reasonText}`
-      : `Your appointment for "${appointment.skillName}" scheduled for ${appointment.requestedDate} is now ${status.toLowerCase()}.${reasonText ? ` Note: ${reasonText}` : ''}`;
+      ? `Your appointment request for "${savedAppointment.skillName}" was declined. Reason: ${reasonText}`
+      : `Your appointment for "${savedAppointment.skillName}" scheduled for ${savedAppointment.requestedDate} is now ${status.toLowerCase()}.${reasonText ? ` Note: ${reasonText}` : ''}`;
 
     const notification = await Notification.create({
       userId: targetUserId,
       title: `Appointment ${status}`,
       message: notifMessage,
       category: 'Appointments',
-      relatedAppointmentId: appointment._id,
+      relatedAppointmentId: savedAppointment._id,
       actionUrl: '/appointments',
     });
 
-    const adapted = adaptAppointment(appointment);
+    const adapted = adaptAppointment(savedAppointment);
 
     // Emit real-time updates via Socket.IO
-    emitToUser(appointment.learnerId.toString(), 'appointment:updated', adapted);
-    emitToUser(appointment.teacherId.toString(), 'appointment:updated', adapted);
+    emitToUser(savedAppointment.learnerId.toString(), 'appointment:updated', adapted);
+    emitToUser(savedAppointment.teacherId.toString(), 'appointment:updated', adapted);
     emitToUser(targetUserId.toString(), 'notification:received', notification);
 
     res.status(200).json({

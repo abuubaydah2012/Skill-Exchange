@@ -133,7 +133,7 @@ interface AppContextType {
 
   // Appointments
   createAppointment: (apt: Omit<Appointment, 'id' | 'createdAt' | 'status'>) => Promise<Appointment>;
-  updateAppointmentStatus: (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => void;
+  updateAppointmentStatus: (appointmentId: string, status: AppointmentStatus, cancellationReason?: string) => Promise<Appointment | undefined>;
 
   // Classes & Sessions
   createClass: (cls: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>) => ClassSession;
@@ -1716,7 +1716,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAppointments((prev) =>
             prev.map((a) => (a.id === updatedApt.id || a.id === appointmentId ? updatedApt : a))
           );
-          addToast('success', `Request ${status}`, `Appointment has been marked as ${status}.`);
+          addToast(
+            'success',
+            status === 'Accepted' ? 'Appointment Accepted' : `Request ${status}`,
+            status === 'Accepted'
+              ? 'Appointment request accepted successfully!'
+              : `Appointment has been marked as ${status}.`
+          );
           return updatedApt;
         } else {
           const errMsg = apiRes.message || apiRes.error || `Failed to update status to ${status}.`;

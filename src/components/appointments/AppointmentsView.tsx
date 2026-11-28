@@ -62,9 +62,12 @@ export const AppointmentsView: React.FC = () => {
   });
 
   const handleAccept = async (id: string) => {
+    if (processingId === id) return;
     try {
       setProcessingId(id);
       await updateAppointmentStatus(id, 'Accepted');
+    } catch {
+      // Error notification is handled in AppContext; keep status Pending for retry
     } finally {
       setProcessingId(null);
     }
@@ -168,19 +171,25 @@ export const AppointmentsView: React.FC = () => {
 
       {/* Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {(['all', 'Pending', 'Accepted', 'Rejected', 'Completed', 'Cancelled'] as const).map((st) => (
-          <button
-            key={st}
-            onClick={() => setStatusFilter(st)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize whitespace-nowrap transition-colors cursor-pointer ${
-              statusFilter === st
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
-            }`}
-          >
-            {st === 'all' ? 'All Appointments' : st}
-          </button>
-        ))}
+        {(['all', 'Pending', 'Accepted', 'Rejected', 'Completed', 'Cancelled'] as const).map((st) => {
+          const count =
+            st === 'all'
+              ? userAppointments.length
+              : userAppointments.filter((a) => a.status === st).length;
+          return (
+            <button
+              key={st}
+              onClick={() => setStatusFilter(st)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize whitespace-nowrap transition-colors cursor-pointer ${
+                statusFilter === st
+                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-semibold'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+              }`}
+            >
+              {st === 'all' ? `All Appointments (${count})` : `${st} (${count})`}
+            </button>
+          );
+        })}
       </div>
 
       {/* View Mode: List or Calendar */}
