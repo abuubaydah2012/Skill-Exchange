@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getConversations,
+  getOrCreateAppointmentConversation,
   getMessagesByConversation,
   sendMessage,
   markConversationAsRead,
@@ -15,6 +16,7 @@ router.use(authenticate);
 
 router.get('/teachers', searchTeachers);
 router.get('/conversations', getConversations);
+router.post('/conversations/appointment', getOrCreateAppointmentConversation);
 router.get('/conversations/:conversationId', getMessagesByConversation);
 router.post('/', sendMessage);
 router.patch('/conversations/:conversationId/read', markConversationAsRead);

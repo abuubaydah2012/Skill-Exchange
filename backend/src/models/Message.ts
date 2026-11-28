@@ -5,6 +5,8 @@ export interface IMessage extends Document {
   conversationId: Types.ObjectId;
   senderId: Types.ObjectId;
   receiverId: Types.ObjectId;
+  appointmentId?: Types.ObjectId;
+  isWelcomeMessage?: boolean;
   text: string;
   attachmentName?: string;
   attachmentSize?: string;
@@ -33,6 +35,15 @@ const MessageSchema = new Schema<IMessage>(
       required: [true, 'Receiver ID is required'],
       index: true,
     },
+    appointmentId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Appointment',
+      index: true,
+    },
+    isWelcomeMessage: {
+      type: Boolean,
+      default: false,
+    },
     text: {
       type: String,
       default: '',
@@ -54,6 +65,17 @@ const MessageSchema = new Schema<IMessage>(
   },
   {
     timestamps: true,
+  }
+);
+
+MessageSchema.index(
+  { appointmentId: 1, isWelcomeMessage: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      isWelcomeMessage: true,
+      appointmentId: { $exists: true },
+    },
   }
 );
 

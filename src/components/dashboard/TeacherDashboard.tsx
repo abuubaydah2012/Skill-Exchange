@@ -40,6 +40,7 @@ export const TeacherDashboard: React.FC = () => {
     reviews,
     updateAppointmentStatus,
     refreshAppointments,
+    openAppointmentConversation,
     dashboardSearchQuery,
     setDashboardSearchQuery,
     dashboardSearchSubmitCount,
@@ -404,12 +405,27 @@ export const TeacherDashboard: React.FC = () => {
                       </p>
                     </div>
 
-                    <button
-                      onClick={() => navigate('/appointments')}
-                      className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-                    >
-                      Details
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const conv = await openAppointmentConversation(apt.id);
+                          if (conv) {
+                            navigate(`/messages?conversation=${encodeURIComponent(conv.id)}&appointment=${encodeURIComponent(apt.id)}&user=${encodeURIComponent(apt.learnerId)}`);
+                          }
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Message Student</span>
+                      </button>
+                      <button
+                        onClick={() => navigate('/appointments')}
+                        className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+                      >
+                        Details
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

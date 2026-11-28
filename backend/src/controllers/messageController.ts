@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import { Message } from '../models/Message.js';
 import { Conversation } from '../models/Conversation.js';
+import { Appointment } from '../models/Appointment.js';
 import { User } from '../models/User.js';
 import { Skill } from '../models/Skill.js';
 import { Notification } from '../models/Notification.js';
@@ -32,6 +33,9 @@ export const getConversations = async (req: AuthenticatedRequest, res: Response,
         id: c._id.toString(),
         participantIds: (c.participantIds as any[]).map((p) => (p._id ? p._id.toString() : p.toString())),
         participants: c.participantIds,
+        appointmentId: c.appointmentId ? c.appointmentId.toString() : undefined,
+        teacherId: c.teacherId ? c.teacherId.toString() : undefined,
+        studentId: c.studentId ? c.studentId.toString() : undefined,
         lastMessageText: c.lastMessageText || '',
         lastMessageTimestamp: c.lastMessageTimestamp
           ? new Date(c.lastMessageTimestamp).toISOString()
@@ -44,6 +48,134 @@ export const getConversations = async (req: AuthenticatedRequest, res: Response,
     res.status(200).json({
       success: true,
       count: adapted.length,
+      data: adapted,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getOrCreateAppointmentConversation = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
+      return;
+    }
+
+    const { appointmentId } = req.body;
+    if (!appointmentId || !mongoose.Types.ObjectId.isValid(appointmentId)) {
+      res.status(400).json({ success: false, message: 'Valid appointment ID is required.' });
+      return;
+    }
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      res.status(404).json({ success: false, message: 'Appointment not found.' });
+      return;
+    }
+
+    const userIdStr = req.user._id.toString();
+    const teacherIdStr = appointment.teacherId.toString();
+    const studentIdStr = appointment.learnerId.toString();
+
+    if (userIdStr !== teacherIdStr && userIdStr !== studentIdStr && req.user.role !== 'admin') {
+      res.status(403).json({ success: false, message: 'Forbidden: You are not a participant of this appointment.' });
+      return;
+    }
+
+    // Status rules: Pending & Rejected cannot start appointment messaging
+    if (appointment.status === 'Pending' || appointment.status === 'Rejected') {
+      res.status(403).json({
+        success: false,
+        message: `Messaging is not available for ${appointment.status.toLowerCase()} appointments.`,
+      });
+      return;
+    }
+
+    // Find existing conversation by appointmentId first, then by participant pair to prevent duplicates
+    let conversation = await Conversation.findOne({
+      $or: [
+        { appointmentId: appointment._id },
+        { participantIds: { $all: [appointment.teacherId, appointment.learnerId] } },
+      ],
+    });
+
+    // Cancelled appointments: preserve existing history if one exists, do not create a new one
+    if (appointment.status === 'Cancelled' && !conversation) {
+      res.status(403).json({
+        success: false,
+        message: 'Cannot start a new conversation for a cancelled appointment.',
+      });
+      return;
+    }
+
+    if (!conversation) {
+      conversation = await Conversation.create({
+        participantIds: [appointment.teacherId, appointment.learnerId],
+        appointmentId: appointment._id,
+        teacherId: appointment.teacherId,
+        studentId: appointment.learnerId,
+        lastMessageText: '',
+        lastMessageTimestamp: new Date(),
+        unreadCountForUser: new Map([
+          [teacherIdStr, 0],
+          [studentIdStr, 0],
+        ]),
+        deletedFor: [],
+      });
+    } else {
+      let dirty = false;
+      if (!conversation.appointmentId || conversation.appointmentId.toString() !== appointment._id.toString()) {
+        // Update linked appointment if current appointment is Accepted or Completed
+        if (appointment.status === 'Accepted' || appointment.status === 'Completed') {
+          conversation.appointmentId = appointment._id;
+          dirty = true;
+        }
+      }
+      if (!conversation.teacherId) {
+        conversation.teacherId = appointment.teacherId;
+        dirty = true;
+      }
+      if (!conversation.studentId) {
+        conversation.studentId = appointment.learnerId;
+        dirty = true;
+      }
+      if (conversation.deletedFor?.some((d) => d.toString() === userIdStr)) {
+        conversation.deletedFor = conversation.deletedFor.filter((d) => d.toString() !== userIdStr);
+        dirty = true;
+      }
+      if (dirty) {
+        await conversation.save();
+      }
+    }
+
+    await conversation.populate('participantIds', 'name email avatarUrl avatarBgColor role');
+
+    const unreadMap = conversation.unreadCountForUser instanceof Map
+      ? Object.fromEntries(conversation.unreadCountForUser)
+      : (conversation.unreadCountForUser || {});
+
+    const adapted = {
+      id: conversation._id.toString(),
+      participantIds: (conversation.participantIds as any[]).map((p) => (p._id ? p._id.toString() : p.toString())),
+      participants: conversation.participantIds,
+      appointmentId: conversation.appointmentId ? conversation.appointmentId.toString() : undefined,
+      teacherId: conversation.teacherId ? conversation.teacherId.toString() : undefined,
+      studentId: conversation.studentId ? conversation.studentId.toString() : undefined,
+      lastMessageText: conversation.lastMessageText || '',
+      lastMessageTimestamp: conversation.lastMessageTimestamp
+        ? new Date(conversation.lastMessageTimestamp).toISOString()
+        : new Date(conversation.updatedAt).toISOString(),
+      unreadCountForUser: unreadMap,
+      deletedFor: (conversation.deletedFor || []).map((d) => d.toString()),
+    };
+
+    res.status(200).json({
+      success: true,
       data: adapted,
     });
   } catch (error) {
@@ -113,7 +245,7 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    const { receiverId, text, attachmentName, attachmentSize } = req.body;
+    const { receiverId, text, attachmentName, attachmentSize, appointmentId } = req.body;
 
     if (!receiverId) {
       res.status(400).json({ success: false, message: 'Receiver ID is required.' });
@@ -155,6 +287,26 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
       participantIds: { $all: [req.user._id, receiver._id] },
     });
 
+    // Enforce appointment status rules if linked to an appointment
+    const effectiveAppointmentId = appointmentId || conversation?.appointmentId?.toString();
+    let resolvedAppointment: any = null;
+    if (effectiveAppointmentId && mongoose.Types.ObjectId.isValid(effectiveAppointmentId)) {
+      resolvedAppointment = await Appointment.findById(effectiveAppointmentId);
+      if (resolvedAppointment) {
+        if (
+          resolvedAppointment.status === 'Cancelled' ||
+          resolvedAppointment.status === 'Rejected' ||
+          resolvedAppointment.status === 'Pending'
+        ) {
+          res.status(403).json({
+            success: false,
+            message: `New messages are not allowed for ${resolvedAppointment.status.toLowerCase()} appointments.`,
+          });
+          return;
+        }
+      }
+    }
+
     const now = new Date();
     const cleanText = (text || '').trim();
     const displayMsg = cleanText || (attachmentName ? `Attachment: ${attachmentName}` : '');
@@ -162,6 +314,13 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
     if (!conversation) {
       conversation = await Conversation.create({
         participantIds: [req.user._id, receiver._id],
+        ...(resolvedAppointment
+          ? {
+              appointmentId: resolvedAppointment._id,
+              teacherId: resolvedAppointment.teacherId,
+              studentId: resolvedAppointment.learnerId,
+            }
+          : {}),
         lastMessageText: displayMsg,
         lastMessageTimestamp: now,
         unreadCountForUser: new Map([
@@ -171,6 +330,11 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
         deletedFor: [],
       });
     } else {
+      if (resolvedAppointment) {
+        conversation.appointmentId = resolvedAppointment._id;
+        conversation.teacherId = resolvedAppointment.teacherId;
+        conversation.studentId = resolvedAppointment.learnerId;
+      }
       conversation.lastMessageText = displayMsg;
       conversation.lastMessageTimestamp = now;
       // If conversation was hidden/soft-deleted by either participant, restore inbox visibility upon new message
@@ -220,6 +384,9 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
     const adaptedConversation = {
       id: conversation._id.toString(),
       participantIds: conversation.participantIds.map((p) => (p._id ? p._id.toString() : p.toString())),
+      appointmentId: conversation.appointmentId ? conversation.appointmentId.toString() : undefined,
+      teacherId: conversation.teacherId ? conversation.teacherId.toString() : undefined,
+      studentId: conversation.studentId ? conversation.studentId.toString() : undefined,
       lastMessageText: conversation.lastMessageText,
       lastMessageTimestamp: conversation.lastMessageTimestamp.toISOString(),
       unreadCountForUser: unreadMap,

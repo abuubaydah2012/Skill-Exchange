@@ -4,6 +4,8 @@ import { Appointment } from '../models/Appointment.js';
 import { Skill } from '../models/Skill.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
+import { Conversation } from '../models/Conversation.js';
+import { Message } from '../models/Message.js';
 import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { emitToUser } from '../socket.js';
 
@@ -318,6 +320,14 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
         });
         return;
       }
+      if (status === 'Accepted' && previousStatus === 'Accepted') {
+        res.status(200).json({
+          success: true,
+          message: 'Appointment has already been accepted.',
+          data: adaptAppointment(appointment),
+        });
+        return;
+      }
       if (previousStatus !== 'Pending') {
         res.status(400).json({
           success: false,
@@ -362,15 +372,156 @@ export const updateAppointmentStatus = async (req: AuthenticatedRequest, res: Re
       }
     }
 
-    appointment.status = status;
+    let savedAppointment = appointment;
     const reasonText = req.body.rejectionReason || req.body.cancellationReason || req.body.reason || cancellationReason || '';
-    if (status === 'Rejected') {
-      appointment.rejectionReason = reasonText;
-      appointment.cancellationReason = reasonText;
-    } else if (status === 'Cancelled' && reasonText) {
-      appointment.cancellationReason = reasonText;
+
+    if (status === 'Accepted') {
+      // Atomic transition from Pending -> Accepted prevents duplicate welcome messages on concurrent clicks
+      const transitioned = await Appointment.findOneAndUpdate(
+        { _id: id, status: 'Pending' },
+        { $set: { status: 'Accepted' } },
+        { new: true }
+      );
+
+      if (!transitioned) {
+        const latest = await Appointment.findById(id);
+        if (latest && latest.status === 'Accepted') {
+          res.status(200).json({
+            success: true,
+            message: 'Appointment has already been accepted.',
+            data: adaptAppointment(latest),
+          });
+          return;
+        }
+        res.status(400).json({
+          success: false,
+          message: 'Only Pending requests can be accepted.',
+        });
+        return;
+      }
+      savedAppointment = transitioned;
+    } else {
+      appointment.status = status;
+      if (status === 'Rejected') {
+        appointment.rejectionReason = reasonText;
+        appointment.cancellationReason = reasonText;
+      } else if (status === 'Cancelled' && reasonText) {
+        appointment.cancellationReason = reasonText;
+      }
+      await appointment.save();
     }
-    await appointment.save();
+
+    // If transitioned to Accepted, send exactly one automatic welcome message from Teacher to Student
+    if (status === 'Accepted' && previousStatus === 'Pending') {
+      const existingWelcome = await Message.findOne({
+        appointmentId: savedAppointment._id,
+        isWelcomeMessage: true,
+      });
+
+      if (!existingWelcome) {
+        const [studentDoc, teacherDoc] = await Promise.all([
+          User.findById(savedAppointment.learnerId).select('name'),
+          User.findById(savedAppointment.teacherId).select('name'),
+        ]);
+        const studentName = studentDoc?.name || savedAppointment.learnerName || 'Student';
+        const teacherName = teacherDoc?.name || savedAppointment.teacherName || 'Instructor';
+        const teacherIdStr = savedAppointment.teacherId.toString();
+        const studentIdStr = savedAppointment.learnerId.toString();
+        const welcomeText = `Welcome ${studentName}! Your appointment request has been accepted. I'm looking forward to connecting with you. Feel free to message me here if you have any questions before our session.`;
+
+        let conversation = await Conversation.findOne({
+          $or: [
+            { appointmentId: savedAppointment._id },
+            { participantIds: { $all: [savedAppointment.teacherId, savedAppointment.learnerId] } },
+          ],
+        });
+
+        const now = new Date();
+        if (!conversation) {
+          conversation = await Conversation.create({
+            participantIds: [savedAppointment.teacherId, savedAppointment.learnerId],
+            appointmentId: savedAppointment._id,
+            teacherId: savedAppointment.teacherId,
+            studentId: savedAppointment.learnerId,
+            lastMessageText: welcomeText,
+            lastMessageTimestamp: now,
+            unreadCountForUser: new Map([
+              [teacherIdStr, 0],
+              [studentIdStr, 1],
+            ]),
+            deletedFor: [],
+          });
+        } else {
+          conversation.appointmentId = savedAppointment._id;
+          conversation.teacherId = savedAppointment.teacherId;
+          conversation.studentId = savedAppointment.learnerId;
+          conversation.lastMessageText = welcomeText;
+          conversation.lastMessageTimestamp = now;
+          conversation.deletedFor = [];
+          const currentUnread = conversation.unreadCountForUser?.get(studentIdStr) || 0;
+          conversation.unreadCountForUser.set(studentIdStr, currentUnread + 1);
+          await conversation.save();
+        }
+
+        try {
+          const welcomeMsg = await Message.create({
+            conversationId: conversation._id,
+            senderId: savedAppointment.teacherId,
+            receiverId: savedAppointment.learnerId,
+            appointmentId: savedAppointment._id,
+            isWelcomeMessage: true,
+            text: welcomeText,
+            isRead: false,
+          });
+
+          const msgNotif = await Notification.create({
+            userId: savedAppointment.learnerId,
+            title: `New message from ${teacherName}`,
+            message: welcomeText.length > 60 ? `${welcomeText.substring(0, 57)}...` : welcomeText,
+            category: 'Messages',
+            actionUrl: '/messages',
+          });
+
+          const adaptedWelcomeMsg = {
+            id: welcomeMsg._id.toString(),
+            conversationId: conversation._id.toString(),
+            senderId: teacherIdStr,
+            senderName: teacherName,
+            receiverId: studentIdStr,
+            text: welcomeMsg.text,
+            timestamp: welcomeMsg.createdAt.toISOString(),
+            isRead: welcomeMsg.isRead,
+          };
+
+          const unreadMap = conversation.unreadCountForUser instanceof Map
+            ? Object.fromEntries(conversation.unreadCountForUser)
+            : (conversation.unreadCountForUser || {});
+
+          const adaptedConv = {
+            id: conversation._id.toString(),
+            participantIds: conversation.participantIds.map((p) => (p._id ? p._id.toString() : p.toString())),
+            appointmentId: savedAppointment._id.toString(),
+            teacherId: teacherIdStr,
+            studentId: studentIdStr,
+            lastMessageText: conversation.lastMessageText,
+            lastMessageTimestamp: conversation.lastMessageTimestamp.toISOString(),
+            unreadCountForUser: unreadMap,
+            deletedFor: [],
+          };
+
+          emitToUser(studentIdStr, 'message:received', adaptedWelcomeMsg);
+          emitToUser(teacherIdStr, 'message:received', adaptedWelcomeMsg);
+          emitToUser(studentIdStr, 'conversation:updated', adaptedConv);
+          emitToUser(teacherIdStr, 'conversation:updated', adaptedConv);
+          emitToUser(studentIdStr, 'notification:received', msgNotif);
+        } catch (msgErr: any) {
+          // Ignore duplicate key error (E11000) if another concurrent call already inserted the welcome message
+          if (msgErr?.code !== 11000) {
+            throw msgErr;
+          }
+        }
+      }
+    }
 
     // If transitioned to Completed, increment completed sessions count for both participants exactly once
     if (status === 'Completed' && previousStatus !== 'Completed') {

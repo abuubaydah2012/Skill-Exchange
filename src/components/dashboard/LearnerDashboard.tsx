@@ -36,6 +36,7 @@ export const LearnerDashboard: React.FC = () => {
     appointments,
     classes,
     announcements,
+    openAppointmentConversation,
     dashboardSearchQuery,
     setDashboardSearchQuery,
     dashboardSearchSubmitCount,
@@ -315,6 +316,20 @@ export const LearnerDashboard: React.FC = () => {
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
                       <button
+                        type="button"
+                        onClick={async () => {
+                          const conv = await openAppointmentConversation(apt.id);
+                          const otherId = currentUser.id === apt.learnerId ? apt.teacherId : apt.learnerId;
+                          if (conv) {
+                            navigate(`/messages?conversation=${encodeURIComponent(conv.id)}&appointment=${encodeURIComponent(apt.id)}&user=${encodeURIComponent(otherId)}`);
+                          }
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>{currentUser.id === apt.learnerId ? 'Message Teacher' : 'Message Student'}</span>
+                      </button>
+                      <button
                         onClick={() => navigate('/appointments')}
                         className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                       >
@@ -383,6 +398,21 @@ export const LearnerDashboard: React.FC = () => {
                       {req.status === 'Rejected' && <Badge variant="error">Declined</Badge>}
                       {req.status === 'Completed' && <Badge variant="neutral">Completed</Badge>}
                       {req.status === 'Cancelled' && <Badge variant="error">Cancelled</Badge>}
+                      {(req.status === 'Accepted' || req.status === 'Completed') && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const conv = await openAppointmentConversation(req.id);
+                            if (conv) {
+                              navigate(`/messages?conversation=${encodeURIComponent(conv.id)}&appointment=${encodeURIComponent(req.id)}&user=${encodeURIComponent(req.teacherId)}`);
+                            }
+                          }}
+                          className="px-2.5 py-1 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Message Teacher</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => navigate('/appointments')}
                         className="px-2.5 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md transition-colors cursor-pointer"

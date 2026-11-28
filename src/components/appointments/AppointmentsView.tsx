@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { Appointment, AppointmentStatus } from '../../types';
 import { Badge } from '../common/Badge';
@@ -21,10 +22,19 @@ import {
   RefreshCw,
   X,
   AlertCircle,
+  MessageSquare,
 } from 'lucide-react';
 
 export const AppointmentsView: React.FC = () => {
-  const { currentUser, appointments, updateAppointmentStatus, refreshAppointments } = useApp();
+  const {
+    currentUser,
+    appointments,
+    conversations,
+    updateAppointmentStatus,
+    refreshAppointments,
+    openAppointmentConversation,
+  } = useApp();
+  const navigate = useNavigate();
 
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [statusFilter, setStatusFilter] = useState<'all' | AppointmentStatus>('all');
@@ -55,6 +65,19 @@ export const AppointmentsView: React.FC = () => {
     try {
       setProcessingId(id);
       await updateAppointmentStatus(id, 'Accepted');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleOpenMessage = async (apt: Appointment) => {
+    try {
+      setProcessingId(apt.id);
+      const conv = await openAppointmentConversation(apt.id);
+      const otherId = currentUser.id === apt.teacherId ? apt.learnerId : apt.teacherId;
+      if (conv) {
+        navigate(`/messages?conversation=${encodeURIComponent(conv.id)}&appointment=${encodeURIComponent(apt.id)}&user=${encodeURIComponent(otherId)}`);
+      }
     } finally {
       setProcessingId(null);
     }
@@ -283,6 +306,19 @@ export const AppointmentsView: React.FC = () => {
                           <span>Decline</span>
                         </button>
                       </div>
+                    )}
+
+                    {/* Message action: shown only when Accepted, immediately beside Details */}
+                    {apt.status === 'Accepted' && (
+                      <button
+                        type="button"
+                        disabled={processingId === apt.id}
+                        onClick={() => handleOpenMessage(apt)}
+                        className="px-3.5 py-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 disabled:opacity-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Message</span>
+                      </button>
                     )}
 
                     {/* Cancel action for active appointments */}

@@ -29,6 +29,7 @@ export const MessagesView: React.FC = () => {
   const {
     currentUser,
     users,
+    appointments,
     conversations,
     messages,
     sendMessage,
@@ -110,9 +111,21 @@ export const MessagesView: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [searchQuery, currentUser?.id]);
 
-  // If a ?user= parameter is passed, select or initialize conversation
+  // If a ?conversation= or ?user= parameter is passed, select or initialize conversation
   useEffect(() => {
+    const targetConvId = searchParams.get('conversation');
     const targetUserId = searchParams.get('user');
+
+    if (targetConvId && currentUser) {
+      const existingById = conversations.find((c) => c.id === targetConvId);
+      if (existingById) {
+        setActiveConversationId(existingById.id);
+        const other = resolveOtherParticipant(existingById);
+        if (other) setSelectedRecipient(other);
+        return;
+      }
+    }
+
     if (targetUserId && currentUser) {
       const existingConv = conversations.find(
         (c) =>
@@ -120,7 +133,7 @@ export const MessagesView: React.FC = () => {
       );
       if (existingConv) {
         setActiveConversationId(existingConv.id);
-        const other = users.find((u) => u.id === targetUserId);
+        const other = resolveOtherParticipant(existingConv) || users.find((u) => u.id === targetUserId) || null;
         if (other) setSelectedRecipient(other);
       } else {
         const target = users.find((u) => u.id === targetUserId);
@@ -169,6 +182,9 @@ export const MessagesView: React.FC = () => {
         portfolioLinks: [],
         accountVerificationStatus: 'Verified',
         isProfileVerified: true,
+        isSuspended: false,
+        twoFactorEnabled: false,
+        profileVisibility: 'public',
         rating: 5.0,
         reviewCount: 0,
         completedSessionsCount: 0,
@@ -218,6 +234,15 @@ export const MessagesView: React.FC = () => {
     ? messages.filter((m) => m.conversationId === activeConversationId)
     : [];
 
+  const linkedAppointmentId = activeConv?.appointmentId || searchParams.get('appointment') || undefined;
+  const linkedAppointment = linkedAppointmentId
+    ? appointments.find((a) => a.id === linkedAppointmentId)
+    : undefined;
+  const isAppointmentMessagingLocked =
+    linkedAppointment?.status === 'Cancelled' ||
+    linkedAppointment?.status === 'Rejected' ||
+    linkedAppointment?.status === 'Pending';
+
   const handleSelectTeacher = (teacher: UserProfile) => {
     // Check if conversation already exists with this teacher
     const existingConv = conversations.find(
@@ -239,6 +264,7 @@ export const MessagesView: React.FC = () => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAppointmentMessagingLocked) return;
     if (!inputText.trim() && !attachedFile) return;
     if (!effectiveRecipient) return;
 
@@ -253,7 +279,8 @@ export const MessagesView: React.FC = () => {
         effectiveRecipient.id,
         textToSend,
         fileToSend?.name,
-        fileToSend?.size
+        fileToSend?.size,
+        linkedAppointmentId
       );
 
       // If backend created/returned conversation, immediately switch to it
@@ -627,7 +654,11 @@ export const MessagesView: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1 text-[10px] text-neutral-400 mt-1 px-1">
+                      <div className="flex items-center gap-1.5 text-[10px] text-neutral-400 mt-1 px-1">
+                        <span className="font-medium text-neutral-500 dark:text-neutral-400">
+                          {isMine ? 'You' : msg.senderName}
+                        </span>
+                        <span>·</span>
                         <span>
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
@@ -657,6 +688,12 @@ export const MessagesView: React.FC = () => {
 
             {/* Input Composer */}
             <div className="p-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+              {isAppointmentMessagingLocked ? (
+                <div className="p-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 text-center text-xs text-neutral-600 dark:text-neutral-300">
+                  This appointment was {linkedAppointment?.status.toLowerCase()}. Previous conversation history is preserved, but new messages cannot be sent.
+                </div>
+              ) : (
+                <>
               {attachedFile && (
                 <div className="mb-2 p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 truncate">
@@ -705,6 +742,8 @@ export const MessagesView: React.FC = () => {
                   )}
                 </button>
               </form>
+                </>
+              )}
             </div>
           </div>
         ) : (

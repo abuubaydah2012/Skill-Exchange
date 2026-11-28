@@ -216,6 +216,9 @@ export interface Conversation {
   id: string;
   participantIds: string[];
   participants?: any[];
+  appointmentId?: string;
+  teacherId?: string;
+  studentId?: string;
   lastMessageText: string;
   lastMessageTimestamp: string;
   unreadCountForUser: Record<string, number>;

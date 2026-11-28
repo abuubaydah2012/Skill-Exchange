@@ -143,7 +143,14 @@ interface AppContextType {
   completeClass: (classId: string) => void;
 
   // Messaging
-  sendMessage: (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => Promise<{ message?: any; conversation?: any } | void>;
+  sendMessage: (
+    receiverId: string,
+    text: string,
+    attachmentName?: string,
+    attachmentSize?: string,
+    appointmentId?: string
+  ) => Promise<{ message?: any; conversation?: any } | void>;
+  openAppointmentConversation: (appointmentId: string) => Promise<Conversation | null>;
   markConversationAsRead: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => Promise<boolean>;
   loadMessagesForConversation: (conversationId: string) => Promise<void>;
@@ -1885,8 +1892,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   // Messaging
+  const openAppointmentConversation = useCallback(
+    async (appointmentId: string): Promise<Conversation | null> => {
+      if (!currentUser) return null;
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const res = await messageApi.getOrCreateAppointmentConversation(appointmentId);
+          if (res.success && res.data) {
+            const conv: Conversation = res.data;
+            setConversations((prev) => {
+              const exists = prev.some((c) => c.id === conv.id);
+              return exists ? prev.map((c) => (c.id === conv.id ? conv : c)) : [conv, ...prev];
+            });
+            return conv;
+          }
+          addToast('error', 'Messaging Unavailable', res.message || 'Could not open appointment conversation.');
+          return null;
+        } catch (err: any) {
+          addToast('error', 'Messaging Error', err?.message || 'Could not connect to messaging service.');
+          return null;
+        }
+      }
+      return null;
+    },
+    [currentUser, addToast]
+  );
+
   const sendMessage = useCallback(
-    async (receiverId: string, text: string, attachmentName?: string, attachmentSize?: string) => {
+    async (
+      receiverId: string,
+      text: string,
+      attachmentName?: string,
+      attachmentSize?: string,
+      appointmentId?: string
+    ) => {
       if (!currentUser) return;
 
       const token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -1897,6 +1937,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             text,
             attachmentName,
             attachmentSize,
+            appointmentId,
           });
 
           if (apiRes.success && apiRes.data?.message && apiRes.data?.conversation) {
@@ -1914,6 +1955,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 : [backendConv, ...prev];
             });
             return { message: backendMsg, conversation: backendConv };
+          }
+
+          if (!apiRes.success) {
+            addToast('error', 'Message Not Sent', apiRes.message || 'Unable to send message.');
+            return;
           }
         } catch {
           // Backend offline fallback
@@ -2499,6 +2545,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeClass,
 
         sendMessage,
+        openAppointmentConversation,
         markConversationAsRead,
         deleteConversation,
         loadMessagesForConversation,

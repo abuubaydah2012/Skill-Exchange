@@ -348,6 +348,12 @@ export const appointmentApi = {
 export const messageApi = {
   getConversations: () => request<any[]>('/messages/conversations'),
 
+  getOrCreateAppointmentConversation: (appointmentId: string) =>
+    request<any>('/messages/conversations/appointment', {
+      method: 'POST',
+      body: JSON.stringify({ appointmentId }),
+    }),
+
   getMessages: (conversationId: string) => request<any[]>(`/messages/conversations/${conversationId}`),
 
   searchTeachers: (searchQuery?: string) => {
@@ -355,7 +361,13 @@ export const messageApi = {
     return request<any[]>(`/messages/teachers${qs}`);
   },
 
-  sendMessage: (payload: { receiverId: string; text?: string; attachmentName?: string; attachmentSize?: string }) =>
+  sendMessage: (payload: {
+    receiverId: string;
+    text?: string;
+    attachmentName?: string;
+    attachmentSize?: string;
+    appointmentId?: string;
+  }) =>
     request<{ message: any; conversation: any }>('/messages', {
       method: 'POST',
       body: JSON.stringify(payload),
