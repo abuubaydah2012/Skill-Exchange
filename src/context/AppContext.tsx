@@ -54,6 +54,7 @@ import {
   reviewApi,
   certificateApi,
   categoryApi,
+  classApi,
   TOKEN_STORAGE_KEY,
 } from '../services/api';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -515,11 +516,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) return;
 
     try {
-      const [aptsRes, convsRes, usersRes, myReviewsRes] = await Promise.all([
+      const [aptsRes, convsRes, usersRes, myReviewsRes, classesRes] = await Promise.all([
         appointmentApi.getAppointments(),
         messageApi.getConversations(),
         userApi.getUsers(),
         reviewApi.getMyReviews(),
+        classApi.getClasses({ scope: 'public' }),
       ]);
 
       if (aptsRes.success && Array.isArray(aptsRes.data)) {
@@ -528,6 +530,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (myReviewsRes.success && Array.isArray(myReviewsRes.data)) {
         setReviews(myReviewsRes.data);
+      }
+
+      if (classesRes.success && Array.isArray(classesRes.data)) {
+        setClasses(classesRes.data);
       }
 
       if (convsRes.success && Array.isArray(convsRes.data)) {
@@ -1798,16 +1804,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createClass = useCallback(
     (clsData: Omit<ClassSession, 'id' | 'teacherId' | 'teacherName' | 'status' | 'enrolledUserIds'>): ClassSession => {
       if (!currentUser) throw new Error('Must be logged in');
+      const tempId = 'cls-' + Math.random().toString(36).substring(2, 9);
       const newClass: ClassSession = {
         ...clsData,
-        id: 'cls-' + Math.random().toString(36).substring(2, 9),
+        id: tempId,
         teacherId: currentUser.id,
         teacherName: currentUser.name,
         status: 'Scheduled',
+        enrolledCount: 0,
         enrolledUserIds: [],
         meetingLink: `https://meet.skillexchange.io/room/${Math.random().toString(36).substring(2, 10)}`,
       };
       setClasses((prev) => [newClass, ...prev]);
+
+      classApi
+        .createClass(clsData)
+        .then((res) => {
+          if (res.success && res.data) {
+            setClasses((prev) => prev.map((c) => (c.id === tempId ? res.data : c)));
+          }
+        })
+        .catch(() => {});
+
       addToast('success', 'Class Created', `"${clsData.title}" is now open for enrollment!`);
       return newClass;
     },
@@ -1817,6 +1835,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateClass = useCallback(
     (classId: string, updated: Partial<ClassSession>) => {
       setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...updated } : c)));
+      classApi.updateClass(classId, updated).catch(() => {});
       addToast('success', 'Class Updated', 'Class details have been saved.');
     },
     [addToast]
@@ -1827,23 +1846,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setClasses((prev) =>
         prev.map((c) => {
           if (c.id !== classId) return c;
-          // Notify enrolled users
-          c.enrolledUserIds.forEach((studentId) => {
-            const notif: PlatformNotification = {
-              id: 'notif-' + Math.random().toString(36).substring(2, 9),
-              userId: studentId,
-              title: 'Class Cancelled',
-              message: `The class "${c.title}" was cancelled by the instructor. Reason: ${reason}.`,
-              category: 'Sessions',
-              isRead: false,
-              createdAt: new Date().toISOString(),
-              actionUrl: '/classes',
-            };
-            setNotifications((prevNotifs) => [notif, ...prevNotifs]);
-          });
           return { ...c, status: 'Cancelled', cancellationReason: reason };
         })
       );
+      classApi.cancelClass(classId, reason).catch(() => {});
       addToast('warning', 'Class Cancelled', 'Enrolled participants have been alerted.');
     },
     [addToast]
@@ -1860,9 +1866,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return true;
       }
 
-      if (targetClass.enrolledUserIds.length >= targetClass.capacity) {
+      const currentCount = targetClass.enrolledCount ?? targetClass.enrolledUserIds.length;
+      if (currentCount >= targetClass.capacity) {
         addToast('error', 'Class Full', 'This session has reached maximum capacity.');
         return false;
+      }
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const res = await classApi.enrollInClass(classId);
+          if (res.success && res.data) {
+            const updatedCls: ClassSession = res.data;
+            setClasses((prev) => prev.map((c) => (c.id === classId ? updatedCls : c)));
+          } else if (!res.success) {
+            addToast('error', 'Enrollment Failed', res.message || 'Could not enroll in workshop.');
+            return false;
+          }
+        } catch {
+          // Offline fallback
+        }
       }
 
       // If paid, create payment record
@@ -1882,7 +1905,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         setPayments((prev) => [paymentTx, ...prev]);
 
-        // Add to teacher earnings
         setUsers((prevUsers) =>
           prevUsers.map((u) =>
             u.id === targetClass.teacherId
@@ -1892,25 +1914,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
 
-      // Update enrollment
       setClasses((prev) =>
         prev.map((c) =>
-          c.id === classId ? { ...c, enrolledUserIds: [...c.enrolledUserIds, currentUser.id] } : c
+          c.id === classId && !c.enrolledUserIds.includes(currentUser.id)
+            ? {
+                ...c,
+                enrolledCount: (c.enrolledCount ?? c.enrolledUserIds.length) + 1,
+                enrolledUserIds: [...c.enrolledUserIds, currentUser.id],
+              }
+            : c
         )
       );
-
-      // Notify teacher
-      const teacherNotif: PlatformNotification = {
-        id: 'notif-' + Math.random().toString(36).substring(2, 9),
-        userId: targetClass.teacherId,
-        title: 'New Student Enrollment',
-        message: `${currentUser.name} joined your class "${targetClass.title}".`,
-        category: 'Sessions',
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        actionUrl: '/classes',
-      };
-      setNotifications((prev) => [teacherNotif, ...prev]);
 
       addToast('success', 'Enrolled Successfully!', `You are registered for "${targetClass.title}".`);
       return true;
@@ -1921,25 +1935,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const completeClass = useCallback(
     (classId: string) => {
       setClasses((prev) =>
-        prev.map((c) => {
-          if (c.id !== classId) return c;
-          // Notify enrolled participants that they can now submit a review
-          c.enrolledUserIds.forEach((uid) => {
-            const notif: PlatformNotification = {
-              id: 'notif-' + Math.random().toString(36).substring(2, 9),
-              userId: uid,
-              title: 'Session Completed — Leave a Review',
-              message: `Your class "${c.title}" with ${c.teacherName} is complete. Share your feedback!`,
-              category: 'Sessions',
-              isRead: false,
-              createdAt: new Date().toISOString(),
-              actionUrl: '/reviews',
-            };
-            setNotifications((prevNotifs) => [notif, ...prevNotifs]);
-          });
-          return { ...c, status: 'Completed' };
-        })
+        prev.map((c) => (c.id === classId ? { ...c, status: 'Completed' } : c))
       );
+      classApi.completeClass(classId).catch(() => {});
       addToast('success', 'Session Completed', 'The class has concluded. Participants may now review.');
     },
     [addToast]

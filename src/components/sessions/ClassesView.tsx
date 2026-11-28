@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { classApi } from '../../services/api';
 import { ClassSession } from '../../types';
 import { ClassModal } from './ClassModal';
 import { MeetingRoomModal } from './MeetingRoomModal';
@@ -30,7 +31,9 @@ export const ClassesView: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [filterType, setFilterType] = useState<'all' | 'my_classes' | 'free' | 'paid'>('all');
+  const [filterType, setFilterType] = useState<'my_sessions' | 'my_enrollments' | 'all' | 'free' | 'paid'>('my_sessions');
+  const [backendScopedClasses, setBackendScopedClasses] = useState<ClassSession[] | null>(null);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
 
   // Modals state
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
@@ -45,11 +48,45 @@ export const ClassesView: React.FC = () => {
     }
   }, [searchParams]);
 
+  // Fetch user-scoped workshops from MongoDB backend
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    const scope =
+      filterType === 'all'
+        ? 'public'
+        : filterType === 'my_enrollments'
+        ? 'my_enrollments'
+        : 'my_sessions';
+
+    setIsLoadingClasses(true);
+    classApi
+      .getClasses({
+        scope,
+        tab: activeTab,
+        pricing: filterType === 'free' ? 'free' : filterType === 'paid' ? 'paid' : 'all',
+      })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && Array.isArray(res.data)) {
+          setBackendScopedClasses(res.data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsLoadingClasses(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, activeTab, filterType, classes.length]);
+
   if (!currentUser) return null;
 
-  const now = new Date();
+  const sourceClasses = backendScopedClasses ?? classes;
 
-  const filteredClasses = classes.filter((cls) => {
+  const filteredClasses = sourceClasses.filter((cls) => {
     // Upcoming vs Past
     if (activeTab === 'upcoming' && (cls.status === 'Completed' || cls.status === 'Cancelled')) {
       return false;
@@ -58,12 +95,20 @@ export const ClassesView: React.FC = () => {
       return false;
     }
 
-    // Filter type
-    if (filterType === 'my_classes') {
-      const isEnrolled = cls.enrolledUserIds.includes(currentUser.id);
-      const isTeacher = cls.teacherId === currentUser.id;
-      if (!isEnrolled && !isTeacher) return false;
+    const isEnrolled = cls.enrolledUserIds.includes(currentUser.id);
+    const isTeacher = cls.teacherId === currentUser.id;
+
+    // Personal filtering: My Sessions / My Enrollments / Free / Paid (never leak unenrolled workshops into My Sessions)
+    if (filterType === 'my_enrollments') {
+      if (!isEnrolled) return false;
+    } else if (filterType !== 'all') {
+      if (currentUser.role === 'teacher') {
+        if (!isTeacher && !isEnrolled) return false;
+      } else {
+        if (!isEnrolled) return false;
+      }
     }
+
     if (filterType === 'free' && !cls.isFree) return false;
     if (filterType === 'paid' && cls.isFree) return false;
 
@@ -129,41 +174,67 @@ export const ClassesView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-          {(['all', 'my_classes', 'free', 'paid'] as const).map((ft) => (
+          {(['my_sessions', 'my_enrollments', 'all', 'free', 'paid'] as const).map((ft) => (
             <button
               key={ft}
               onClick={() => setFilterType(ft)}
-              className={`px-2.5 py-1 rounded-md capitalize transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md capitalize whitespace-nowrap transition-colors cursor-pointer ${
                 filterType === ft
                   ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-white font-semibold'
                   : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300'
               }`}
             >
-              {ft === 'all' ? 'All Workshops' : ft === 'my_classes' ? 'My Enrollments' : ft}
+              {ft === 'my_sessions'
+                ? 'My Sessions'
+                : ft === 'my_enrollments'
+                ? 'My Enrollments'
+                : ft === 'all'
+                ? 'All Workshops'
+                : ft}
             </button>
           ))}
         </div>
       </div>
 
       {/* Classes Grid */}
-      {filteredClasses.length === 0 ? (
+      {isLoadingClasses && filteredClasses.length === 0 ? (
+        <div className="p-12 text-center rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs">
+          <div className="w-7 h-7 border-3 border-neutral-900 dark:border-white border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-neutral-500">Loading your workshops...</p>
+        </div>
+      ) : filteredClasses.length === 0 ? (
         <div className="p-12 text-center rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs">
           <Video className="w-10 h-10 text-neutral-400 mx-auto mb-2" />
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">
-            No workshops found
+            {activeTab === 'past' ? 'No Past Sessions' : 'No Upcoming Sessions Yet'}
           </h3>
           <p className="text-xs text-neutral-500 mt-1 max-w-sm mx-auto">
-            {activeTab === 'upcoming'
-              ? 'No scheduled classes currently meet these filters. Create the first one!'
-              : 'No completed workshops archived yet.'}
+            {activeTab === 'past'
+              ? 'Your completed workshops will appear here.'
+              : filterType === 'all'
+              ? 'No scheduled workshops are available right now.'
+              : "You haven't enrolled in any workshops yet. Explore available workshops and join a session to start learning."}
           </p>
+          {activeTab === 'upcoming' && filterType !== 'all' && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('upcoming');
+                setFilterType('all');
+              }}
+              className="mt-4 px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors cursor-pointer"
+            >
+              Discover Workshops
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredClasses.map((cls) => {
             const isTeacher = currentUser.id === cls.teacherId;
             const isEnrolled = cls.enrolledUserIds.includes(currentUser.id);
-            const isFull = cls.enrolledUserIds.length >= cls.capacity;
+            const seatCount = cls.enrolledCount ?? cls.enrolledUserIds.length;
+            const isFull = seatCount >= cls.capacity;
 
             return (
               <div
@@ -204,7 +275,7 @@ export const ClassesView: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-neutral-500">Seat Capacity:</span>
                       <span className="font-mono tabular-nums">
-                        {cls.enrolledUserIds.length} / {cls.capacity} seats taken
+                        {seatCount} / {cls.capacity} seats taken
                       </span>
                     </div>
                   </div>

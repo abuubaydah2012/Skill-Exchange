@@ -18,7 +18,9 @@ import reviewRoutes from './routes/reviewRoutes.js';
 import certificateRoutes from './routes/certificateRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
+import classRoutes from './routes/classRoutes.js';
 import { ensureDefaultCategoriesAndMigrateSkills } from './utils/categorySeed.js';
+import { ClassSession } from './models/ClassSession.js';
 import { User } from './models/User.js';
 import { Skill } from './models/Skill.js';
 
@@ -103,6 +105,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/classes', classRoutes);
 
 // 6. 404 & Centralized Error Handlers
 app.use(notFoundHandler);
@@ -192,6 +195,49 @@ export const ensureDefaultDemoAccounts = async () => {
           verificationStatus: 'Verified',
         });
         console.log('[Seed] Ensured default skill for Marcus Vance: React & TypeScript Architecture');
+      }
+
+      // Ensure initial public workshops exist (with empty enrolledUserIds so new students start with 0 enrollments)
+      const existingClassCount = await ClassSession.countDocuments();
+      if (existingClassCount === 0) {
+        const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        const inTenDays = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+        await ClassSession.insertMany([
+          {
+            teacherId: teacher._id,
+            teacherName: teacher.name,
+            title: 'TypeScript Generics & Advanced Utility Types Workshop',
+            skillName: 'React & TypeScript Architecture',
+            category: 'Technology & Programming',
+            description: 'Deep dive into conditional types, mapped types, and strict API contracts in TypeScript.',
+            dateTime: nextWeek,
+            durationMinutes: 90,
+            capacity: 20,
+            enrolledUserIds: [],
+            isFree: true,
+            price: 0,
+            format: 'Interactive Workshop',
+            meetingLink: 'https://meet.skillexchange.io/room/ts-generics',
+            status: 'Scheduled',
+          },
+          {
+            teacherId: teacher._id,
+            teacherName: teacher.name,
+            title: 'Building Your First Machine Learning Classifier',
+            skillName: 'Machine Learning',
+            category: 'Technology & Programming',
+            description: 'Hands-on workshop covering data preprocessing, model training, and evaluation metrics.',
+            dateTime: inTenDays,
+            durationMinutes: 75,
+            capacity: 15,
+            enrolledUserIds: [],
+            isFree: false,
+            price: 25,
+            format: 'Practice Lab',
+            meetingLink: 'https://meet.skillexchange.io/room/ml-classifier',
+            status: 'Scheduled',
+          },
+        ]);
       }
     }
   } catch (err) {

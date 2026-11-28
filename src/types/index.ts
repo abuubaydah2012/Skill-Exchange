@@ -228,6 +228,7 @@ export interface ClassSession {
   dateTime: string; // ISO string
   durationMinutes: number;
   capacity: number;
+  enrolledCount?: number;
   enrolledUserIds: string[];
   isFree: boolean;
   price: number;

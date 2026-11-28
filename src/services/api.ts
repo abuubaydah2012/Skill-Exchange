@@ -517,7 +517,49 @@ export const categoryApi = {
 };
 
 // -----------------------------------------------------------------------------
-// 9. Health & System Diagnostic API
+// 9. Classes & Workshops API
+// -----------------------------------------------------------------------------
+export const classApi = {
+  getClasses: (params?: { scope?: 'my_sessions' | 'my_enrollments' | 'public' | 'teacher_hosted'; tab?: 'upcoming' | 'past' | 'all'; pricing?: 'all' | 'free' | 'paid' }) => {
+    const query = new URLSearchParams();
+    if (params?.scope) query.set('scope', params.scope);
+    if (params?.tab) query.set('tab', params.tab);
+    if (params?.pricing) query.set('pricing', params.pricing);
+    const qs = query.toString();
+    return request<any[]>(`/classes${qs ? `?${qs}` : ''}`);
+  },
+
+  createClass: (payload: any) =>
+    request<any>('/classes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateClass: (id: string, payload: any) =>
+    request<any>(`/classes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  enrollInClass: (id: string) =>
+    request<any>(`/classes/${id}/enroll`, {
+      method: 'POST',
+    }),
+
+  cancelClass: (id: string, reason?: string) =>
+    request<any>(`/classes/${id}/cancel`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason }),
+    }),
+
+  completeClass: (id: string) =>
+    request<any>(`/classes/${id}/complete`, {
+      method: 'PATCH',
+    }),
+};
+
+// -----------------------------------------------------------------------------
+// 10. Health & System Diagnostic API
 // -----------------------------------------------------------------------------
 export const healthApi = {
   checkHealth: () => request<any>('/health'),
