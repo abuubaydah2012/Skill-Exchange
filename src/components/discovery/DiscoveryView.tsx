@@ -48,7 +48,6 @@ export const DiscoveryView: React.FC = () => {
   const [selectedProficiency, setSelectedProficiency] = useState('All');
   const [pricingFilter, setPricingFilter] = useState<'all' | 'free_swap' | 'paid'>('all');
   const [maxPrice, setMaxPrice] = useState<number>(100);
-  const [locationQuery, setLocationQuery] = useState('');
   const [sortBy, setSortBy] = useState<'relevance' | 'rating' | 'price_low' | 'price_high' | 'experience'>('relevance');
 
   // Appointment Modal Target
@@ -123,12 +122,6 @@ export const DiscoveryView: React.FC = () => {
             (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
           );
           if (!matchesName && !matchesBio && !matchesSkill) return false;
-        }
-
-        // Location Filter
-        if (locationQuery.trim()) {
-          const lq = locationQuery.toLowerCase().trim();
-          if (!user.location.toLowerCase().includes(lq)) return false;
         }
 
         // Rating Filter
@@ -206,7 +199,6 @@ export const DiscoveryView: React.FC = () => {
     users,
     currentUser,
     searchQuery,
-    locationQuery,
     minRating,
     selectedCategories,
     selectedSubcategory,
@@ -227,7 +219,6 @@ export const DiscoveryView: React.FC = () => {
     setSelectedProficiency('All');
     setPricingFilter('all');
     setMaxPrice(100);
-    setLocationQuery('');
     setSortBy('relevance');
   };
 
@@ -239,8 +230,7 @@ export const DiscoveryView: React.FC = () => {
     minExperience > 0 ||
     selectedProficiency !== 'All' ||
     pricingFilter !== 'all' ||
-    maxPrice < 100 ||
-    locationQuery !== '';
+    maxPrice < 100;
 
   return (
     <div className="space-y-6">
@@ -257,28 +247,15 @@ export const DiscoveryView: React.FC = () => {
       {/* Filter and Search Bar Container */}
       <div className="p-5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-xs space-y-4">
         {/* Search Input Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="relative md:col-span-2">
-            <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by skill name (e.g. React, Spanish, SEO, Cooking) or instructor..."
-              className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
-            />
-          </div>
-
-          <div className="relative">
-            <MapPin className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
-              value={locationQuery}
-              onChange={(e) => setLocationQuery(e.target.value)}
-              placeholder="Filter by location (e.g. Berlin, Austin)..."
-              className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
-            />
-          </div>
+        <div className="relative w-full">
+          <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by skill name (e.g. React, Spanish, SEO, Cooking) or instructor..."
+            className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-white"
+          />
         </div>
 
         {/* Dynamic MongoDB Category & Subcategory Filter */}
