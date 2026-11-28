@@ -200,8 +200,12 @@ export const TeacherDashboard: React.FC = () => {
         />
         <StatCard
           label="Average Rating"
-          value={`${currentUser.rating.toFixed(2)} ★`}
-          subValue={`${teacherReviews.length} verified reviews`}
+          value={teacherReviews.length > 0 || currentUser.reviewCount > 0 ? `${currentUser.rating.toFixed(2)} ★` : 'No ratings yet'}
+          subValue={
+            teacherReviews.length > 0 || currentUser.reviewCount > 0
+              ? `${Math.max(teacherReviews.length, currentUser.reviewCount)} verified reviews`
+              : 'New Teacher'
+          }
           icon={Star}
         />
         <StatCard

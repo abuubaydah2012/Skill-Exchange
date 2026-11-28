@@ -411,12 +411,26 @@ export const notificationApi = {
 // -----------------------------------------------------------------------------
 export const reviewApi = {
   createReview: (reviewData: any) =>
-    request<any>('/reviews', {
+    request<{ review: any; teacherSummary?: { rating: number; reviewCount: number } }>('/reviews', {
       method: 'POST',
       body: JSON.stringify(reviewData),
     }),
 
   getReviewsByUser: (userId: string) => request<any[]>(`/reviews/user/${userId}`),
+
+  getMyReviews: () => request<any[]>('/reviews/my'),
+
+  flagReview: (id: string, reason: string) =>
+    request(`/reviews/${id}/flag`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason }),
+    }),
+
+  moderateReview: (id: string, action: 'keep' | 'delete') =>
+    request(`/reviews/${id}/moderate`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action }),
+    }),
 };
 
 // -----------------------------------------------------------------------------

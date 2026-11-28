@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { reviewApi } from '../../services/api';
+import { Review } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { Badge } from '../common/Badge';
 import { StarRating } from '../common/StarRating';
@@ -51,7 +53,35 @@ export const ProfileView: React.FC = () => {
   }
 
   const isSelf = currentUser?.id === targetUser.id;
-  const userReviews = reviews.filter((r) => r.reviewedUserId === targetUser.id);
+  const [fetchedReviews, setFetchedReviews] = useState<Review[] | null>(null);
+  const [ratingSummary, setRatingSummary] = useState<{
+    averageRating: number;
+    reviewCount: number;
+    distribution: Record<1 | 2 | 3 | 4 | 5, number>;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    reviewApi
+      .getReviewsByUser(targetUser.id)
+      .then((res: any) => {
+        if (cancelled) return;
+        if (res.success && Array.isArray(res.data)) {
+          setFetchedReviews(res.data);
+          if (res.summary) {
+            setRatingSummary(res.summary);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [targetUser.id]);
+
+  const userReviews = fetchedReviews ?? reviews.filter((r) => r.reviewedUserId === targetUser.id && !r.isFlagged);
+  const effectiveReviewCount = ratingSummary?.reviewCount ?? (userReviews.length > 0 ? userReviews.length : targetUser.reviewCount);
+  const effectiveRating = ratingSummary?.averageRating ?? (effectiveReviewCount > 0 ? targetUser.rating : 0);
   const completeness = calculateProfileCompleteness(targetUser);
 
   return (
@@ -98,13 +128,22 @@ export const ProfileView: React.FC = () => {
                   <span>{targetUser.languages.join(', ')}</span>
                 </div>
                 <span>·</span>
-                <div className="flex items-center gap-1">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-                  <span className="font-semibold text-neutral-900 dark:text-white tabular-nums">
-                    {targetUser.rating.toFixed(2)}
-                  </span>
-                  <span>({targetUser.reviewCount} reviews)</span>
-                </div>
+                {effectiveReviewCount > 0 ? (
+                  <div className="flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                    <span className="font-semibold text-neutral-900 dark:text-white tabular-nums">
+                      {effectiveRating.toFixed(2)}
+                    </span>
+                    <span>({effectiveReviewCount} {effectiveReviewCount === 1 ? 'review' : 'reviews'})</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                      New {targetUser.role === 'teacher' ? 'Teacher' : 'Member'}
+                    </span>
+                    <span className="text-neutral-400">No ratings yet</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -286,31 +325,76 @@ export const ProfileView: React.FC = () => {
       )}
 
       {activeTab === 'reviews' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {userReviews.length === 0 ? (
-            <div className="p-8 text-center text-xs text-neutral-500">
-              No reviews recorded for {targetUser.name} yet.
+            <div className="p-8 text-center rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs text-neutral-500">
+              No ratings yet. {targetUser.name} has not received any reviews yet.
             </div>
           ) : (
-            userReviews.map((rev) => (
-              <div
-                key={rev.id}
-                className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-neutral-900 dark:text-white">
-                    {rev.reviewerName}
-                  </span>
-                  <StarRating rating={rev.rating} size="sm" showValue />
+            <>
+              {/* Rating Summary & 1-5 Star Distribution */}
+              <div className="p-5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
+                <div className="text-center sm:text-left">
+                  <div className="text-3xl font-extrabold text-neutral-900 dark:text-white tabular-nums">
+                    {effectiveRating.toFixed(2)}
+                  </div>
+                  <div className="mt-1">
+                    <StarRating rating={effectiveRating} size="sm" />
+                  </div>
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Based on {effectiveReviewCount} verified {effectiveReviewCount === 1 ? 'review' : 'reviews'}
+                  </p>
                 </div>
-                <p className="text-xs text-neutral-700 dark:text-neutral-300 mt-1 leading-relaxed">
-                  &ldquo;{rev.comment}&rdquo;
-                </p>
-                <span className="text-[10px] text-neutral-400 mt-1 block">
-                  {rev.sessionTitle} · {new Date(rev.createdAt).toLocaleDateString()}
-                </span>
+
+                <div className="sm:col-span-2 space-y-1.5">
+                  {([5, 4, 3, 2, 1] as const).map((star) => {
+                    const countForStar = ratingSummary?.distribution?.[star] ?? userReviews.filter((r) => Math.round(r.rating) === star).length;
+                    const pct = effectiveReviewCount > 0 ? Math.round((countForStar / effectiveReviewCount) * 100) : 0;
+                    return (
+                      <div key={star} className="flex items-center gap-2.5 text-xs">
+                        <span className="w-10 text-right font-medium text-neutral-600 dark:text-neutral-400 shrink-0">
+                          {star} ★
+                        </span>
+                        <div className="flex-1 h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-400 rounded-full transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-[11px] text-neutral-500 tabular-nums text-right">
+                          {countForStar}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            ))
+
+              {userReviews.map((rev) => (
+                <div
+                  key={rev.id}
+                  className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-neutral-900 dark:text-white">
+                      {rev.reviewerName}
+                    </span>
+                    <StarRating rating={rev.rating} size="sm" showValue />
+                  </div>
+                  {rev.title && (
+                    <h4 className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 mt-1">
+                      {rev.title}
+                    </h4>
+                  )}
+                  <p className="text-xs text-neutral-700 dark:text-neutral-300 mt-1 leading-relaxed">
+                    &ldquo;{rev.comment}&rdquo;
+                  </p>
+                  <span className="text-[10px] text-neutral-400 mt-1 block">
+                    {rev.sessionTitle} · {new Date(rev.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}

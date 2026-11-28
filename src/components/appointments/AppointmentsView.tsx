@@ -9,6 +9,7 @@ import { useApp } from '../../context/AppContext';
 import { Appointment, AppointmentStatus } from '../../types';
 import { Badge } from '../common/Badge';
 import { Avatar } from '../common/Avatar';
+import { StarRating } from '../common/StarRating';
 import {
   CalendarDays,
   Clock,
@@ -23,16 +24,18 @@ import {
   X,
   AlertCircle,
   MessageSquare,
+  Star,
 } from 'lucide-react';
 
 export const AppointmentsView: React.FC = () => {
   const {
     currentUser,
     appointments,
-    conversations,
+    reviews,
     updateAppointmentStatus,
     refreshAppointments,
     openAppointmentConversation,
+    submitReview,
   } = useApp();
   const navigate = useNavigate();
 
@@ -44,6 +47,13 @@ export const AppointmentsView: React.FC = () => {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [selectedDetailsAppointment, setSelectedDetailsAppointment] = useState<Appointment | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Rate & Review Modal State
+  const [reviewingAppointment, setReviewingAppointment] = useState<Appointment | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewTitle, setReviewTitle] = useState<string>('');
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
 
   useEffect(() => {
     refreshAppointments();
@@ -352,6 +362,34 @@ export const AppointmentsView: React.FC = () => {
                         Mark Completed
                       </button>
                     )}
+
+                    {/* Rate & Review: only for Student on Completed appointments */}
+                    {apt.status === 'Completed' && !isTeacher && (
+                      reviews.some(
+                        (r) =>
+                          (r.appointmentId === apt.id || r.sessionId === apt.id) &&
+                          r.reviewerId === currentUser.id
+                      ) ? (
+                        <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg">
+                          <Star className="w-3.5 h-3.5 fill-current" />
+                          <span>Reviewed</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviewingAppointment(apt);
+                            setReviewRating(5);
+                            setReviewTitle('');
+                            setReviewComment('');
+                          }}
+                          className="px-3.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/50 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                          <span>Rate &amp; Review</span>
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               );
@@ -657,6 +695,120 @@ export const AppointmentsView: React.FC = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rate & Review Modal (Completed Appointments) */}
+      {reviewingAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <h3 className="text-base font-bold text-neutral-900 dark:text-white">
+                  Rate &amp; Review Session
+                </h3>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  {reviewingAppointment.skillName} with {reviewingAppointment.teacherName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewingAppointment(null)}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!reviewComment.trim() || isSubmittingReview) return;
+                setIsSubmittingReview(true);
+                try {
+                  const ok = await submitReview({
+                    appointmentId: reviewingAppointment.id,
+                    sessionId: reviewingAppointment.id,
+                    sessionTitle: `1-on-1: ${reviewingAppointment.skillName}`,
+                    reviewerId: currentUser.id,
+                    reviewerName: currentUser.name,
+                    reviewerRole: 'learner',
+                    reviewedUserId: reviewingAppointment.teacherId,
+                    reviewedUserName: reviewingAppointment.teacherName,
+                    skillName: reviewingAppointment.skillName,
+                    title: reviewTitle.trim() || undefined,
+                    rating: reviewRating,
+                    comment: reviewComment.trim(),
+                  });
+                  if (ok) {
+                    setReviewingAppointment(null);
+                  }
+                } finally {
+                  setIsSubmittingReview(false);
+                }
+              }}
+              className="mt-4 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-2">
+                  Your Rating (1 to 5 Stars)
+                </label>
+                <StarRating
+                  rating={reviewRating}
+                  size="lg"
+                  interactive
+                  onRatingChange={setReviewRating}
+                  showValue
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Review Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={reviewTitle}
+                  onChange={(e) => setReviewTitle(e.target.value)}
+                  placeholder="e.g. Clear explanations and practical examples"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                  Written Feedback
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  maxLength={1000}
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  placeholder="Share what you learned, teaching style, and session quality..."
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReviewingAppointment(null)}
+                  className="px-3.5 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReview || !reviewComment.trim()}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-neutral-900 dark:bg-white dark:text-neutral-900 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

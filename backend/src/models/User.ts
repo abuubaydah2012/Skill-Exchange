@@ -124,7 +124,7 @@ const UserSchema = new Schema<IUser>(
       enum: ['public', 'members-only', 'private'],
       default: 'public',
     },
-    rating: { type: Number, default: 5.0, min: 0, max: 5 },
+    rating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0 },
     completedSessionsCount: { type: Number, default: 0 },
     totalEarnings: { type: Number, default: 0 },

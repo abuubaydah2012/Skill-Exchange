@@ -266,6 +266,7 @@ export interface Conversation {
 
 export interface Review {
   id: string;
+  appointmentId?: string;
   sessionId: string;
   sessionTitle: string;
   reviewerId: string;
@@ -274,6 +275,7 @@ export interface Review {
   reviewedUserId: string;
   reviewedUserName: string;
   skillName: string;
+  title?: string;
   rating: number; // 1-5
   comment: string;
   createdAt: string;

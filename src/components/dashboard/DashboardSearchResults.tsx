@@ -427,9 +427,17 @@ export const DashboardSearchResults: React.FC<DashboardSearchResultsProps> = ({
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 shrink-0">
-                          <Star className="w-3.5 h-3.5 fill-current" />
-                          <span>{(teacher.rating ?? 0).toFixed(1)}</span>
+                        <div className="flex items-center gap-1 text-xs font-semibold shrink-0">
+                          {(teacher.reviewCount ?? 0) > 0 ? (
+                            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                              <Star className="w-3.5 h-3.5 fill-current" />
+                              <span>{teacher.rating.toFixed(1)}</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                              New Teacher
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -455,7 +463,7 @@ export const DashboardSearchResults: React.FC<DashboardSearchResultsProps> = ({
 
                     <div className="mt-3 pt-2.5 border-t border-neutral-200/70 dark:border-neutral-800 flex items-center justify-between text-[11px]">
                       <span className="text-neutral-500">
-                        {teacher.reviewCount ?? 0} reviews
+                        {(teacher.reviewCount ?? 0) > 0 ? `${teacher.reviewCount} reviews` : 'No ratings yet'}
                       </span>
                       <span className="text-sky-600 dark:text-sky-400 font-semibold">
                         View Profile

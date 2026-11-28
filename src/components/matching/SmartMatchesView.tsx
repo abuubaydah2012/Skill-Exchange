@@ -140,14 +140,23 @@ export const SmartMatchesView: React.FC = () => {
                       {candidate.headline} · {candidate.location}
                     </p>
 
-                    <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1.5">
-                      <div className="flex items-center gap-1">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-                        <span className="font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums">
-                          {candidate.rating.toFixed(2)}
-                        </span>
-                        <span className="text-neutral-400">({candidate.reviewCount})</span>
-                      </div>
+                    <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1.5 flex-wrap">
+                      {(candidate.reviewCount ?? 0) > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                          <span className="font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums">
+                            {candidate.rating.toFixed(2)}
+                          </span>
+                          <span className="text-neutral-400">({candidate.reviewCount})</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                            New Teacher
+                          </span>
+                          <span className="text-neutral-400">No ratings yet</span>
+                        </div>
+                      )}
                       <span>·</span>
                       <span>{candidate.completedSessionsCount} sessions completed</span>
                       <span>·</span>

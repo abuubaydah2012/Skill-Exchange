@@ -437,11 +437,15 @@ export const MessagesView: React.FC = () => {
                               <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
                                 {teacher.name}
                               </span>
-                              {teacher.rating ? (
+                              {(teacher.reviewCount ?? 0) > 0 ? (
                                 <span className="text-[10px] text-amber-500 font-semibold flex items-center gap-0.5">
                                   ★ {teacher.rating.toFixed(1)}
                                 </span>
-                              ) : null}
+                              ) : (
+                                <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                                  New
+                                </span>
+                              )}
                             </div>
                             <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
                               {teacher.headline || teacher.teachingSkills?.[0]?.name || 'Teacher'}

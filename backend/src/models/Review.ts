@@ -8,6 +8,7 @@ export interface IReview extends Document {
   sessionId?: string;
   sessionTitle?: string;
   skillName?: string;
+  title?: string;
   rating: number;
   comment: string;
   isFlagged: boolean;
@@ -38,6 +39,11 @@ const ReviewSchema = new Schema<IReview>(
     sessionId: { type: String },
     sessionTitle: { type: String },
     skillName: { type: String },
+    title: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+    },
     rating: {
       type: Number,
       required: [true, 'Rating is required'],
@@ -53,6 +59,7 @@ const ReviewSchema = new Schema<IReview>(
     isFlagged: {
       type: Boolean,
       default: false,
+      index: true,
     },
     flagReason: {
       type: String,
@@ -71,36 +78,71 @@ const ReviewSchema = new Schema<IReview>(
   }
 );
 
-// Virtual alias matching specification:
+// Prevent duplicate reviews for the same appointment by the same reviewer
+ReviewSchema.index(
+  { appointmentId: 1, reviewerId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      appointmentId: { $exists: true },
+    },
+  }
+);
+
 ReviewSchema.virtual('reviewComment').get(function () {
   return this.comment;
 });
 
-// Post-save hook to recompute average rating on the reviewed user
+export const recomputeUserRating = async (reviewedUserId: Types.ObjectId | string) => {
+  const userObjId =
+    typeof reviewedUserId === 'string'
+      ? new mongoose.Types.ObjectId(reviewedUserId)
+      : reviewedUserId;
+
+  const aggregate = await mongoose.model('Review').aggregate([
+    { $match: { reviewedUserId: userObjId, isFlagged: false } },
+    {
+      $group: {
+        _id: '$reviewedUserId',
+        avgRating: { $avg: '$rating' },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  if (aggregate.length > 0) {
+    const avg = Math.round(aggregate[0].avgRating * 100) / 100;
+    const count = aggregate[0].count;
+    await mongoose.model('User').findByIdAndUpdate(userObjId, {
+      rating: avg,
+      reviewCount: count,
+    });
+    return { rating: avg, reviewCount: count };
+  } else {
+    await mongoose.model('User').findByIdAndUpdate(userObjId, {
+      rating: 0,
+      reviewCount: 0,
+    });
+    return { rating: 0, reviewCount: 0 };
+  }
+};
+
 ReviewSchema.post<IReview>('save', async function () {
   try {
-    const aggregate = await mongoose.model('Review').aggregate([
-      { $match: { reviewedUserId: this.reviewedUserId, isFlagged: false } },
-      {
-        $group: {
-          _id: '$reviewedUserId',
-          avgRating: { $avg: '$rating' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    if (aggregate.length > 0) {
-      await mongoose.model('User').findByIdAndUpdate(this.reviewedUserId, {
-        rating: Math.round(aggregate[0].avgRating * 10) / 10,
-        reviewCount: aggregate[0].count,
-      });
-    }
+    await recomputeUserRating(this.reviewedUserId);
   } catch (err) {
-    console.error('Error recomputing user rating:', err);
+    console.error('Error recomputing user rating on save:', err);
   }
 });
 
-ReviewSchema.index({ reviewedUserId: 1, createdAt: -1 });
+ReviewSchema.post('findOneAndDelete', async function (doc: IReview | null) {
+  if (doc) {
+    try {
+      await recomputeUserRating(doc.reviewedUserId);
+    } catch (err) {
+      console.error('Error recomputing user rating on delete:', err);
+    }
+  }
+});
 
 export const Review = mongoose.model<IReview>('Review', ReviewSchema);

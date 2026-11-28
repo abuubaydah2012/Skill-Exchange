@@ -163,7 +163,7 @@ interface AppContextType {
   blockUser: (targetUserId: string) => void;
 
   // Reviews
-  submitReview: (review: Omit<Review, 'id' | 'createdAt' | 'isFlagged'>) => void;
+  submitReview: (review: Omit<Review, 'id' | 'createdAt' | 'isFlagged'>) => Promise<boolean>;
   editReview: (reviewId: string, rating: number, comment: string) => void;
   flagReview: (reviewId: string, reason: string) => void;
   moderateReview: (reviewId: string, action: 'keep' | 'delete') => void;
@@ -515,14 +515,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!token) return;
 
     try {
-      const [aptsRes, convsRes, usersRes] = await Promise.all([
+      const [aptsRes, convsRes, usersRes, myReviewsRes] = await Promise.all([
         appointmentApi.getAppointments(),
         messageApi.getConversations(),
         userApi.getUsers(),
+        reviewApi.getMyReviews(),
       ]);
 
       if (aptsRes.success && Array.isArray(aptsRes.data)) {
         setAppointments(aptsRes.data);
+      }
+
+      if (myReviewsRes.success && Array.isArray(myReviewsRes.data)) {
+        setReviews(myReviewsRes.data);
       }
 
       if (convsRes.success && Array.isArray(convsRes.data)) {
@@ -583,7 +588,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             isSuspended: Boolean(u.isSuspended),
             twoFactorEnabled: Boolean(u.twoFactorEnabled),
             profileVisibility: u.profileVisibility || 'public',
-            rating: u.rating || 5.0,
+            rating: (u.reviewCount || 0) > 0 ? (u.rating ?? 0) : 0,
             reviewCount: u.reviewCount || 0,
             completedSessionsCount: u.completedSessionsCount || 0,
             totalEarnings: u.totalEarnings || 0,
@@ -705,7 +710,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             isSuspended: Boolean(u.isSuspended),
             twoFactorEnabled: Boolean(u.twoFactorEnabled),
             profileVisibility: u.profileVisibility || 'public',
-            rating: u.rating || 5.0,
+            rating: (u.reviewCount || 0) > 0 ? (u.rating ?? 0) : 0,
             reviewCount: u.reviewCount || 0,
             completedSessionsCount: u.completedSessionsCount || 0,
             totalEarnings: u.totalEarnings || 0,
@@ -2192,15 +2197,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Reviews
   const submitReview = useCallback(
-    (reviewData: Omit<Review, 'id' | 'createdAt' | 'isFlagged'>) => {
-      if (!currentUser) return;
-      // Check duplicate review
+    async (reviewData: Omit<Review, 'id' | 'createdAt' | 'isFlagged'>): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const res = await reviewApi.createReview({
+            appointmentId: reviewData.appointmentId || reviewData.sessionId,
+            sessionId: reviewData.sessionId,
+            sessionTitle: reviewData.sessionTitle,
+            skillName: reviewData.skillName,
+            title: reviewData.title,
+            rating: reviewData.rating,
+            comment: reviewData.comment,
+          });
+
+          if (res.success && res.data?.review) {
+            const savedReview: Review = res.data.review;
+            setReviews((prev) => [savedReview, ...prev]);
+
+            if (res.data.teacherSummary) {
+              const { rating: newRating, reviewCount: newCount } = res.data.teacherSummary;
+              setUsers((prev) =>
+                prev.map((u) =>
+                  u.id === reviewData.reviewedUserId
+                    ? { ...u, rating: newRating, reviewCount: newCount }
+                    : u
+                )
+              );
+            }
+
+            addToast('success', 'Review Published', 'Thank you for submitting your verified review!');
+            return true;
+          }
+
+          addToast('error', 'Review Failed', res.message || 'Could not submit review.');
+          return false;
+        } catch (err: any) {
+          addToast('error', 'Review Failed', err?.message || 'Could not submit review.');
+          return false;
+        }
+      }
+
       const alreadyReviewed = reviews.some(
-        (r) => r.sessionId === reviewData.sessionId && r.reviewerId === currentUser.id
+        (r) =>
+          (r.appointmentId && reviewData.appointmentId && r.appointmentId === reviewData.appointmentId) ||
+          (r.sessionId === reviewData.sessionId && r.reviewerId === currentUser.id)
       );
       if (alreadyReviewed) {
         addToast('error', 'Review Exists', 'You have already submitted a review for this session.');
-        return;
+        return false;
       }
 
       const newReview: Review = {
@@ -2211,31 +2258,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
 
       setReviews((prev) => [newReview, ...prev]);
-
-      // Sync with MongoDB backend if available
-      reviewApi
-        .createReview({
-          reviewedUserId: reviewData.reviewedUserId,
-          sessionId: reviewData.sessionId,
-          rating: reviewData.rating,
-          comment: reviewData.comment,
-        })
-        .catch(() => {});
-
-      // Notification for reviewed user
-      const notif: PlatformNotification = {
-        id: 'notif-' + Math.random().toString(36).substring(2, 9),
-        userId: reviewData.reviewedUserId,
-        title: 'New Review Received',
-        message: `${currentUser.name} rated your session ${reviewData.rating} ★: "${reviewData.comment.substring(0, 50)}..."`,
-        category: 'Sessions',
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        actionUrl: '/reviews',
-      };
-      setNotifications((prev) => [notif, ...prev]);
-
       addToast('success', 'Review Published', 'Thank you for contributing your feedback!');
+      return true;
     },
     [currentUser, reviews, addToast]
   );
@@ -2255,6 +2279,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setReviews((prev) =>
         prev.map((r) => (r.id === reviewId ? { ...r, isFlagged: true, flagReason: reason } : r))
       );
+      reviewApi.flagReview(reviewId, reason).catch(() => {});
       addToast('warning', 'Review Reported', 'Moderation team will investigate this review.');
     },
     [addToast]
@@ -2262,6 +2287,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const moderateReview = useCallback(
     (reviewId: string, action: 'keep' | 'delete') => {
+      reviewApi.moderateReview(reviewId, action).catch(() => {});
       if (action === 'delete') {
         setReviews((prev) => prev.filter((r) => r.id !== reviewId));
         addToast('info', 'Review Removed', 'Review was deleted by moderator.');
