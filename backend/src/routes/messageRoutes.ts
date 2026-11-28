@@ -4,6 +4,7 @@ import {
   getOrCreateAppointmentConversation,
   getMessagesByConversation,
   sendMessage,
+  deleteMessage,
   markConversationAsRead,
   deleteConversationForUser,
   searchTeachers,
@@ -19,6 +20,7 @@ router.get('/conversations', getConversations);
 router.post('/conversations/appointment', getOrCreateAppointmentConversation);
 router.get('/conversations/:conversationId', getMessagesByConversation);
 router.post('/', sendMessage);
+router.delete('/:messageId', deleteMessage);
 router.patch('/conversations/:conversationId/read', markConversationAsRead);
 router.delete('/conversations/:conversationId', deleteConversationForUser);
 

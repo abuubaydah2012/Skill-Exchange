@@ -35,8 +35,10 @@ export const MessagesView: React.FC = () => {
     sendMessage,
     markConversationAsRead,
     deleteConversation,
+    deleteMessage,
     loadMessagesForConversation,
     refreshConversations,
+    refreshAppointments,
     blockUser,
   } = useApp();
   const [searchParams] = useSearchParams();
@@ -60,10 +62,11 @@ export const MessagesView: React.FC = () => {
   const [showOptionsDropdown, setShowOptionsDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Refresh conversations from MongoDB Atlas on mount
+  // Refresh conversations & appointments from MongoDB Atlas on mount so status is never stale
   useEffect(() => {
     refreshConversations();
-  }, [refreshConversations]);
+    refreshAppointments();
+  }, [refreshConversations, refreshAppointments]);
 
   // Live Teacher Search via MongoDB Atlas backend
   useEffect(() => {
@@ -238,10 +241,29 @@ export const MessagesView: React.FC = () => {
   const linkedAppointment = linkedAppointmentId
     ? appointments.find((a) => a.id === linkedAppointmentId)
     : undefined;
+
+  // Check if ANY Accepted or Completed appointment exists between the two participants
+  const hasActiveAppointmentWithRecipient = Boolean(
+    currentUser &&
+      effectiveRecipient &&
+      appointments.some(
+        (a) =>
+          ((a.teacherId === currentUser.id && a.learnerId === effectiveRecipient.id) ||
+            (a.learnerId === currentUser.id && a.teacherId === effectiveRecipient.id)) &&
+          (a.status === 'Accepted' || a.status === 'Completed')
+      )
+  );
+
+  // Authoritative status: prefer active Accepted/Completed pair, then live appointment, then backend conversation status
+  const effectiveAppointmentStatus = hasActiveAppointmentWithRecipient
+    ? 'Accepted'
+    : (linkedAppointment?.status || activeConv?.appointmentStatus);
+
   const isAppointmentMessagingLocked =
-    linkedAppointment?.status === 'Cancelled' ||
-    linkedAppointment?.status === 'Rejected' ||
-    linkedAppointment?.status === 'Pending';
+    !hasActiveAppointmentWithRecipient &&
+    (effectiveAppointmentStatus === 'Cancelled' ||
+      effectiveAppointmentStatus === 'Rejected' ||
+      effectiveAppointmentStatus === 'Pending');
 
   const handleSelectTeacher = (teacher: UserProfile) => {
     // Check if conversation already exists with this teacher
@@ -625,32 +647,46 @@ export const MessagesView: React.FC = () => {
                   return (
                     <div
                       key={msg.id}
-                      className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
+                      className={`group flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
                     >
-                      <div
-                        className={`max-w-md p-3 rounded-2xl text-xs leading-relaxed shadow-xs ${
-                          isMine
-                            ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 rounded-br-xs'
-                            : 'bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 rounded-bl-xs'
-                        }`}
-                      >
-                        <p>{msg.text}</p>
+                      <div className={`flex items-center gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div
+                          className={`max-w-md p-3 rounded-2xl text-xs leading-relaxed shadow-xs ${
+                            isMine
+                              ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 rounded-br-xs'
+                              : 'bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 rounded-bl-xs'
+                          }`}
+                        >
+                          <p>{msg.text}</p>
 
-                        {/* Attachment Badge */}
-                        {msg.attachmentName && (
-                          <div
-                            className={`mt-2 p-2 rounded-lg flex items-center gap-2 border text-[11px] ${
-                              isMine
-                                ? 'bg-neutral-800 dark:bg-neutral-100 border-neutral-700 dark:border-neutral-200 text-neutral-200 dark:text-neutral-800'
-                                : 'bg-neutral-50 dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
-                            }`}
-                          >
-                            <FileText className="w-4 h-4 text-sky-500 shrink-0" />
-                            <div className="truncate">
-                              <strong className="block truncate">{msg.attachmentName}</strong>
-                              <span className="text-[10px] opacity-75">{msg.attachmentSize}</span>
+                          {/* Attachment Badge */}
+                          {msg.attachmentName && (
+                            <div
+                              className={`mt-2 p-2 rounded-lg flex items-center gap-2 border text-[11px] ${
+                                isMine
+                                  ? 'bg-neutral-800 dark:bg-neutral-100 border-neutral-700 dark:border-neutral-200 text-neutral-200 dark:text-neutral-800'
+                                  : 'bg-neutral-50 dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
+                              }`}
+                            >
+                              <FileText className="w-4 h-4 text-sky-500 shrink-0" />
+                              <div className="truncate">
+                                <strong className="block truncate">{msg.attachmentName}</strong>
+                                <span className="text-[10px] opacity-75">{msg.attachmentSize}</span>
+                              </div>
                             </div>
-                          </div>
+                          )}
+                        </div>
+
+                        {isMine && (
+                          <button
+                            type="button"
+                            onClick={() => deleteMessage(msg.id)}
+                            title="Delete message"
+                            aria-label="Delete message"
+                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 text-neutral-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
 
@@ -690,7 +726,7 @@ export const MessagesView: React.FC = () => {
             <div className="p-3 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
               {isAppointmentMessagingLocked ? (
                 <div className="p-2.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 text-center text-xs text-neutral-600 dark:text-neutral-300">
-                  This appointment was {linkedAppointment?.status.toLowerCase()}. Previous conversation history is preserved, but new messages cannot be sent.
+                  This appointment was {effectiveAppointmentStatus?.toLowerCase()}. Previous conversation history is preserved, but new messages cannot be sent.
                 </div>
               ) : (
                 <>

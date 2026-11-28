@@ -24,16 +24,45 @@ export const getConversations = async (req: AuthenticatedRequest, res: Response,
       .populate('participantIds', 'name email avatarUrl avatarBgColor role')
       .sort({ lastMessageTimestamp: -1, updatedAt: -1 });
 
+    // Fetch all appointments involving the current user once to resolve authoritative statuses
+    const userAppointments = await Appointment.find({
+      $or: [{ teacherId: userId }, { learnerId: userId }],
+    })
+      .select('_id teacherId learnerId status updatedAt')
+      .sort({ updatedAt: -1 });
+
     const adapted = conversations.map((c) => {
       const unreadMap = c.unreadCountForUser instanceof Map
         ? Object.fromEntries(c.unreadCountForUser)
         : (c.unreadCountForUser || {});
 
+      const participantIdStrs = (c.participantIds as any[]).map((p) => (p._id ? p._id.toString() : p.toString()));
+      const otherIdStr = participantIdStrs.find((pid) => pid !== userId.toString());
+
+      // Match appointments between these two participants
+      const pairAppointments = otherIdStr
+        ? userAppointments.filter(
+            (a) =>
+              (a.teacherId.toString() === userId.toString() && a.learnerId.toString() === otherIdStr) ||
+              (a.learnerId.toString() === userId.toString() && a.teacherId.toString() === otherIdStr)
+          )
+        : [];
+
+      // Priority: any Accepted/Completed appointment keeps the conversation unlocked
+      const activeApt = pairAppointments.find(
+        (a) => a.status === 'Accepted' || a.status === 'Completed'
+      );
+      const linkedApt = c.appointmentId
+        ? pairAppointments.find((a) => a._id.toString() === c.appointmentId?.toString())
+        : undefined;
+      const effectiveApt = activeApt || linkedApt || pairAppointments[0];
+
       return {
         id: c._id.toString(),
-        participantIds: (c.participantIds as any[]).map((p) => (p._id ? p._id.toString() : p.toString())),
+        participantIds: participantIdStrs,
         participants: c.participantIds,
-        appointmentId: c.appointmentId ? c.appointmentId.toString() : undefined,
+        appointmentId: effectiveApt ? effectiveApt._id.toString() : (c.appointmentId ? c.appointmentId.toString() : undefined),
+        appointmentStatus: effectiveApt ? effectiveApt.status : undefined,
         teacherId: c.teacherId ? c.teacherId.toString() : undefined,
         studentId: c.studentId ? c.studentId.toString() : undefined,
         lastMessageText: c.lastMessageText || '',
@@ -287,10 +316,21 @@ export const sendMessage = async (req: AuthenticatedRequest, res: Response, next
       participantIds: { $all: [req.user._id, receiver._id] },
     });
 
-    // Enforce appointment status rules if linked to an appointment
-    const effectiveAppointmentId = appointmentId || conversation?.appointmentId?.toString();
-    let resolvedAppointment: any = null;
-    if (effectiveAppointmentId && mongoose.Types.ObjectId.isValid(effectiveAppointmentId)) {
+    // Enforce appointment status rules: if an Accepted/Completed appointment exists between the pair, allow messaging
+    const activePairAppointment = await Appointment.findOne({
+      $or: [
+        { teacherId: req.user._id, learnerId: receiver._id },
+        { teacherId: receiver._id, learnerId: req.user._id },
+      ],
+      status: { $in: ['Accepted', 'Completed'] },
+    }).sort({ updatedAt: -1 });
+
+    const effectiveAppointmentId = activePairAppointment
+      ? activePairAppointment._id.toString()
+      : (appointmentId || conversation?.appointmentId?.toString());
+    let resolvedAppointment: any = activePairAppointment;
+
+    if (!resolvedAppointment && effectiveAppointmentId && mongoose.Types.ObjectId.isValid(effectiveAppointmentId)) {
       resolvedAppointment = await Appointment.findById(effectiveAppointmentId);
       if (resolvedAppointment) {
         if (
@@ -508,6 +548,88 @@ export const deleteConversationForUser = async (req: AuthenticatedRequest, res: 
       success: true,
       message: 'Conversation deleted from your inbox successfully.',
       data: { conversationId },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteMessage = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
+      return;
+    }
+
+    const { messageId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      res.status(400).json({ success: false, message: 'Invalid message ID format.' });
+      return;
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      res.status(404).json({ success: false, message: 'Message not found.' });
+      return;
+    }
+
+    const userIdStr = req.user._id.toString();
+    if (message.senderId.toString() !== userIdStr && req.user.role !== 'admin') {
+      res.status(403).json({ success: false, message: 'Forbidden: You can only delete your own messages.' });
+      return;
+    }
+
+    const conversationId = message.conversationId;
+    await Message.deleteOne({ _id: message._id });
+
+    // Recompute latest message preview without modifying appointment or conversation lock state
+    const conv = await Conversation.findById(conversationId);
+    let adaptedConv: any = undefined;
+    if (conv) {
+      const latestRemaining = await Message.findOne({ conversationId: conv._id }).sort({ createdAt: -1 });
+      if (latestRemaining) {
+        conv.lastMessageText =
+          latestRemaining.text ||
+          (latestRemaining.attachmentName ? `Attachment: ${latestRemaining.attachmentName}` : '');
+        conv.lastMessageTimestamp = latestRemaining.createdAt;
+      } else {
+        conv.lastMessageText = '';
+      }
+      await conv.save();
+
+      const unreadMap = conv.unreadCountForUser instanceof Map
+        ? Object.fromEntries(conv.unreadCountForUser)
+        : (conv.unreadCountForUser || {});
+
+      adaptedConv = {
+        id: conv._id.toString(),
+        participantIds: conv.participantIds.map((p) => (p._id ? p._id.toString() : p.toString())),
+        appointmentId: conv.appointmentId ? conv.appointmentId.toString() : undefined,
+        teacherId: conv.teacherId ? conv.teacherId.toString() : undefined,
+        studentId: conv.studentId ? conv.studentId.toString() : undefined,
+        lastMessageText: conv.lastMessageText,
+        lastMessageTimestamp: conv.lastMessageTimestamp.toISOString(),
+        unreadCountForUser: unreadMap,
+        deletedFor: (conv.deletedFor || []).map((d) => d.toString()),
+      };
+
+      conv.participantIds.forEach((pid) => {
+        emitToUser(pid.toString(), 'message:deleted', {
+          messageId: message._id.toString(),
+          conversationId: conv._id.toString(),
+        });
+        emitToUser(pid.toString(), 'conversation:updated', adaptedConv);
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Message deleted successfully.',
+      data: {
+        messageId: message._id.toString(),
+        conversationId: conversationId.toString(),
+        conversation: adaptedConv,
+      },
     });
   } catch (error) {
     next(error);

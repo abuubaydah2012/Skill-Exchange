@@ -153,6 +153,7 @@ interface AppContextType {
   openAppointmentConversation: (appointmentId: string) => Promise<Conversation | null>;
   markConversationAsRead: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => Promise<boolean>;
+  deleteMessage: (messageId: string) => Promise<boolean>;
   loadMessagesForConversation: (conversationId: string) => Promise<void>;
   refreshConversations: () => Promise<void>;
   refreshAppointments: () => Promise<void>;
@@ -823,7 +824,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setMessages((prev) => prev.filter((m) => m.conversationId !== conversationId));
     };
 
+    const handleMessageDeleted = ({ messageId }: { messageId: string; conversationId: string }) => {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    };
+
     socket.on('message:received', handleMessageReceived);
+    socket.on('message:deleted', handleMessageDeleted);
     socket.on('conversation:updated', handleConversationUpdated);
     socket.on('conversation:read', handleConversationRead);
     socket.on('conversation:deleted', handleConversationDeleted);
@@ -832,6 +838,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       socket.off('message:received', handleMessageReceived);
+      socket.off('message:deleted', handleMessageDeleted);
       socket.off('conversation:updated', handleConversationUpdated);
       socket.off('conversation:read', handleConversationRead);
       socket.off('conversation:deleted', handleConversationDeleted);
@@ -2102,6 +2109,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [currentUser, addToast]
   );
 
+  const deleteMessage = useCallback(
+    async (messageId: string): Promise<boolean> => {
+      if (!currentUser) return false;
+
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (token) {
+        try {
+          const res = await messageApi.deleteMessage(messageId);
+          if (res.success) {
+            setMessages((prev) => prev.filter((m) => m.id !== messageId));
+            if (res.data?.conversation) {
+              const updatedConv = res.data.conversation;
+              setConversations((prev) =>
+                prev.map((c) => (c.id === updatedConv.id ? { ...c, ...updatedConv } : c))
+              );
+            }
+            return true;
+          }
+          addToast('error', 'Delete Failed', res.message || 'Could not delete message.');
+          return false;
+        } catch {
+          // Offline fallback
+        }
+      }
+
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      return true;
+    },
+    [currentUser, addToast]
+  );
+
   const blockUser = useCallback(
     (targetUserId: string) => {
       if (!currentUser) return;
@@ -2548,6 +2586,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openAppointmentConversation,
         markConversationAsRead,
         deleteConversation,
+        deleteMessage,
         loadMessagesForConversation,
         refreshConversations,
         refreshAppointments,

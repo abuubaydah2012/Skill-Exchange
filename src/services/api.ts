@@ -382,6 +382,11 @@ export const messageApi = {
     request<{ conversationId: string }>(`/messages/conversations/${conversationId}`, {
       method: 'DELETE',
     }),
+
+  deleteMessage: (messageId: string) =>
+    request<{ messageId: string; conversationId: string; conversation?: any }>(`/messages/${messageId}`, {
+      method: 'DELETE',
+    }),
 };
 
 // -----------------------------------------------------------------------------

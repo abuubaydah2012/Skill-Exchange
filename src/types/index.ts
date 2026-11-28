@@ -217,6 +217,7 @@ export interface Conversation {
   participantIds: string[];
   participants?: any[];
   appointmentId?: string;
+  appointmentStatus?: AppointmentStatus;
   teacherId?: string;
   studentId?: string;
   lastMessageText: string;
